@@ -1,8 +1,7 @@
-using Maliev.PricingService.Api.Interfaces;
+namespace Maliev.PricingService.Api.Services;
+
 using Maliev.PricingService.Data.Entities;
 using System.Diagnostics;
-
-namespace Maliev.PricingService.Api.Services;
 
 /// <summary>
 /// Rule-based implementation of the pricing engine.
@@ -10,7 +9,10 @@ namespace Maliev.PricingService.Api.Services;
 public class RuleBasedPricingEngine : IPricingEngine
 {
     /// <inheritdoc/>
-    public PricingResult CalculatePrice(PricingRequest request, PricingConfiguration config)
+    public PricingStrategy Strategy => PricingStrategy.RuleBased;
+
+    /// <inheritdoc/>
+    public Task<PricingResult> CalculateAsync(PricingRequest request, PricingConfiguration config, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
 
@@ -20,7 +22,7 @@ public class RuleBasedPricingEngine : IPricingEngine
         decimal totalMaterialCost = materialCost + supportMaterialCost;
 
         // 2. Machine Cost (Time-based)
-        decimal printTimeHours = request.Geometry.VolumeCm3 / config.PrintSpeedCm3PerHour;
+        decimal printTimeHours = config.PrintSpeedCm3PerHour > 0 ? request.Geometry.VolumeCm3 / config.PrintSpeedCm3PerHour : 0;
         decimal machineCost = printTimeHours * config.MachineHourlyRate;
 
         // 3. Setup Cost
@@ -50,15 +52,13 @@ public class RuleBasedPricingEngine : IPricingEngine
         if (unitPrice < config.MinimumOrderPrice)
         {
             unitPrice = config.MinimumOrderPrice;
-            // Recalculate margin/subtotal to reflect min price if necessary, 
-            // but usually we just bump the unit price.
         }
 
         decimal totalPrice = unitPrice * request.Quantity;
 
         sw.Stop();
 
-        return new PricingResult
+        return Task.FromResult(new PricingResult
         {
             Strategy = PricingStrategy.RuleBased,
             MaterialCost = Math.Round(materialCost, 2),
@@ -72,6 +72,6 @@ public class RuleBasedPricingEngine : IPricingEngine
             TotalPrice = Math.Round(totalPrice, 2),
             ConfidenceLevel = 1.0m,
             CalculationDuration = sw.Elapsed
-        };
+        });
     }
 }

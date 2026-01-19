@@ -10,6 +10,7 @@ builder.AddServiceDefaults();
 
 // Add services to the container.
 builder.Services.AddMemoryCache();
+builder.Services.AddScoped<IPricingEngine, RuleBasedPricingEngine>();
 builder.Services.AddScoped<IPricingOrchestrator, PricingOrchestrator>();
 
 // Configure MassTransit with RabbitMQ
@@ -19,13 +20,18 @@ builder.Services.AddMassTransit(x =>
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(builder.Configuration.GetConnectionString("messaging"));
+        var connectionString = builder.Configuration.GetConnectionString("messaging");
+        if (!string.IsNullOrEmpty(connectionString))
+        {
+            cfg.Host(connectionString);
+        }
         cfg.ConfigureEndpoints(context);
     });
 });
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddControllers();
 
 var app = builder.Build();
 
@@ -37,6 +43,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.MapControllers();
 
 var summaries = new[]
 {

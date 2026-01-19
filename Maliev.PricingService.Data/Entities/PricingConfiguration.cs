@@ -121,5 +121,6 @@ public class PricingConfiguration
     /// <summary>
     /// Optimistic concurrency token.
     /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public byte[] RowVersion { get; set; } = [];
 }

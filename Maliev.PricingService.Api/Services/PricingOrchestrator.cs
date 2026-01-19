@@ -59,7 +59,7 @@ public class PricingOrchestrator : IPricingOrchestrator
             }
 
             // 2. Perform Calculation
-            var result = _pricingEngine.CalculatePrice(request, config);
+            var result = await _pricingEngine.CalculateAsync(request, config, cancellationToken);
 
             // 3. Apply Loyalty Discount (Task T013)
             result = await ApplyLoyaltyDiscountAsync(request.CustomerId, result, cancellationToken);

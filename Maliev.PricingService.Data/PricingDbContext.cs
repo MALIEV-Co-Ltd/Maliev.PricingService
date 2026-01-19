@@ -42,7 +42,7 @@ public class PricingDbContext : DbContext
             builder.Property(x => x.SupportMaterialPricePerCm3).HasPrecision(18, 6);
             builder.Property(x => x.MachineHourlyRate).HasPrecision(18, 2);
             builder.Property(x => x.PrintSpeedCm3PerHour).HasPrecision(18, 4);
-            builder.Property(x => x.RowVersion).IsRowVersion();
+            builder.Property(x => x.RowVersion).HasColumnName("row_version").HasDefaultValueSql("decode('0000000000000000', 'hex')");
             builder.HasIndex(x => new { x.MaterialId, x.ManufacturingProcessId, x.EffectiveFrom }).IsUnique();
         });
 
