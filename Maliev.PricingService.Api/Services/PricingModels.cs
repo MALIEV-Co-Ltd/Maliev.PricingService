@@ -191,6 +191,11 @@ public record PricingResult
     public required decimal ConfidenceLevel { get; init; }
 
     /// <summary>
+    /// Date until which this price is valid.
+    /// </summary>
+    public required DateTime ValidUntil { get; init; }
+
+    /// <summary>
     /// Calculation duration.
     /// </summary>
     public required TimeSpan CalculationDuration { get; init; }

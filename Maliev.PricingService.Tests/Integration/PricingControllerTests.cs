@@ -71,6 +71,12 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
         var response = await _client.PostAsJsonAsync("/v1/pricing/calculate", request);
 
         // Assert
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            Assert.Fail($"Request failed with status {response.StatusCode}. Response: {error}");
+        }
+        
         response.EnsureSuccessStatusCode();
         var result = await response.Content.ReadFromJsonAsync<PricingResult>();
         Assert.NotNull(result);

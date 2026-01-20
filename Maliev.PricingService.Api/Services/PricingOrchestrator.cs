@@ -1,9 +1,12 @@
+using Maliev.MessagingContracts.Contracts.Pricing;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using EntityPricingStrategy = Maliev.PricingService.Data.Entities.PricingStrategy;
 
 namespace Maliev.PricingService.Api.Services;
 
@@ -15,6 +18,7 @@ public class PricingOrchestrator : IPricingOrchestrator
     private readonly PricingDbContext _dbContext;
     private readonly IPricingEngine _pricingEngine;
     private readonly IMemoryCache _cache;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly ILogger<PricingOrchestrator> _logger;
 
     /// <summary>
@@ -23,16 +27,19 @@ public class PricingOrchestrator : IPricingOrchestrator
     /// <param name="dbContext">The database context.</param>
     /// <param name="pricingEngine">The pricing engine.</param>
     /// <param name="cache">The memory cache for fallback pricing.</param>
+    /// <param name="publishEndpoint">The MassTransit publish endpoint.</param>
     /// <param name="logger">The logger.</param>
     public PricingOrchestrator(
         PricingDbContext dbContext,
         IPricingEngine pricingEngine,
         IMemoryCache cache,
+        IPublishEndpoint publishEndpoint,
         ILogger<PricingOrchestrator> logger)
     {
         _dbContext = dbContext;
         _pricingEngine = pricingEngine;
         _cache = cache;
+        _publishEndpoint = publishEndpoint;
         _logger = logger;
     }
 
@@ -72,18 +79,80 @@ public class PricingOrchestrator : IPricingOrchestrator
                 InputVolumeCm3 = request.Geometry.VolumeCm3,
                 InputSupportVolumeCm3 = request.Geometry.SupportVolumeCm3,
                 InputSurfaceAreaCm2 = request.Geometry.SurfaceAreaCm2,
+                InputBoundingBoxX = request.Geometry.BoundingBoxX,
+                InputBoundingBoxY = request.Geometry.BoundingBoxY,
+                InputBoundingBoxZ = request.Geometry.BoundingBoxZ,
+                InputIsManifold = request.Geometry.IsManifold,
+                InputTriangleCount = request.Geometry.TriangleCount,
+                MaterialId = request.MaterialId,
+                MaterialCode = request.MaterialCode,
+                ManufacturingProcessId = request.ManufacturingProcessId,
+                ManufacturingProcessName = request.ManufacturingProcessName,
+                Quantity = request.Quantity,
+                PricingConfigurationId = config.Id,
+                ConfigMaterialPricePerCm3 = config.MaterialPricePerCm3,
+                ConfigSupportPricePerCm3 = config.SupportMaterialPricePerCm3,
+                ConfigMachineHourlyRate = config.MachineHourlyRate,
+                ConfigMarginMultiplier = config.MarginMultiplier,
+                Strategy = (EntityPricingStrategy)result.Strategy,
+                MLModelVersion = result.MLModelVersion,
+                MaterialCost = result.MaterialCost,
+                SupportMaterialCost = result.SupportMaterialCost,
+                MachineTimeCost = result.MachineTimeCost,
+                SetupCost = result.SetupCost,
+                ComplexitySurcharge = result.ComplexitySurcharge,
+                SubtotalBeforeMargin = result.SubtotalBeforeMargin,
+                MarginAmount = result.MarginAmount,
                 TotalUnitPrice = result.TotalUnitPrice,
                 TotalPrice = result.TotalPrice,
+                ConfidenceLevel = result.ConfidenceLevel,
                 CurrencyCode = "THB",
+                ValidFrom = DateTime.UtcNow,
+                ValidUntil = result.ValidUntil,
                 CalculatedAt = DateTime.UtcNow,
-                Strategy = result.Strategy.ToString(),
-                PricingConfigurationId = config.Id
+                CalculatedBySystem = "PricingService",
+                CorrelationId = request.CorrelationId,
+                CalculationDuration = result.CalculationDuration
             };
 
             await _dbContext.PricingAuditRecords.AddAsync(auditRecord, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            // 5. Update fallback cache (Task T017)
+            // 5. Publish PriceCalculatedEvent (Task T018)
+            await _publishEndpoint.Publish(new PriceCalculatedEvent
+            {
+                PricingAuditId = auditRecord.Id,
+                FileId = request.FileId,
+                CustomerId = request.CustomerId,
+                MaterialId = request.MaterialId,
+                ProcessId = request.ManufacturingProcessId,
+                Quantity = request.Quantity,
+                InputVolumeCm3 = request.Geometry.VolumeCm3,
+                InputSupportVolumeCm3 = request.Geometry.SupportVolumeCm3,
+                InputSurfaceAreaCm2 = request.Geometry.SurfaceAreaCm2,
+                Strategy = result.Strategy.ToString(),
+                MLModelVersion = result.MLModelVersion,
+                ConfidenceLevel = result.ConfidenceLevel,
+                PricingConfigurationId = config.Id,
+                Breakdown = new PriceBreakdownContract
+                {
+                    MaterialCost = result.MaterialCost,
+                    SupportCost = result.SupportMaterialCost,
+                    MachineTimeCost = result.MachineTimeCost,
+                    SetupCost = result.SetupCost,
+                    ComplexitySurcharge = result.ComplexitySurcharge,
+                    SubtotalBeforeMargin = result.SubtotalBeforeMargin,
+                    MarginAmount = result.MarginAmount,
+                    TotalPrice = result.TotalPrice
+                },
+                TotalUnitPrice = result.TotalUnitPrice,
+                TotalPrice = result.TotalPrice,
+                Currency = auditRecord.CurrencyCode,
+                ValidUntil = result.ValidUntil, // I need to make sure result has ValidUntil or use auditRecord
+                CalculatedAt = auditRecord.CalculatedAt
+            }, cancellationToken);
+
+            // 6. Update fallback cache (Task T017)
             _cache.Set(cacheKey, result, TimeSpan.FromDays(7));
 
             return result;

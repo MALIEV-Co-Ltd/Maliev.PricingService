@@ -1,5 +1,7 @@
+using Asp.Versioning;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PricingService.Api.Controllers;
@@ -8,7 +10,8 @@ namespace Maliev.PricingService.Api.Controllers;
 /// Controller for pricing calculations.
 /// </summary>
 [ApiController]
-[Route("v1/pricing")]
+[ApiVersion("1.0")]
+[Route("v{version:apiVersion}/pricing")]
 public class PricingController : ControllerBase
 {
     private readonly IPricingOrchestrator _orchestrator;
@@ -34,6 +37,7 @@ public class PricingController : ControllerBase
     [HttpPost("calculate")]
     [ProducesResponseType(typeof(PricingResult), 200)]
     [ProducesResponseType(400)]
+    [Authorize(Policy = PricingPermissions.CalculationsCreate)]
     public async Task<ActionResult<PricingResult>> CalculatePrice([FromBody] PricingRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received ad-hoc pricing request for FileId: {FileId}", request.FileId);

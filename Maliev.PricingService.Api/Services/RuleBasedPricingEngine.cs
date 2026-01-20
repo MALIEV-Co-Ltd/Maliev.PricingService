@@ -71,6 +71,7 @@ public class RuleBasedPricingEngine : IPricingEngine
             TotalUnitPrice = Math.Round(unitPrice, 2),
             TotalPrice = Math.Round(totalPrice, 2),
             ConfidenceLevel = 1.0m,
+            ValidUntil = DateTime.UtcNow.AddDays(30),
             CalculationDuration = sw.Elapsed
         });
     }

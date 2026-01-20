@@ -46,46 +46,20 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
             Quantity = 1,
             Geometry = new GeometryMetrics
             {
-                VolumeCm3 = (decimal)message.Volume,
-                SupportVolumeCm3 = (decimal)message.SupportVolume,
-                SurfaceAreaCm2 = (decimal)message.SurfaceArea,
-                BoundingBoxX = (decimal)message.BoundingBoxX,
-                BoundingBoxY = (decimal)message.BoundingBoxY,
-                BoundingBoxZ = (decimal)message.BoundingBoxZ,
+                VolumeCm3 = message.VolumeCm3,
+                SupportVolumeCm3 = message.SupportVolumeCm3,
+                SurfaceAreaCm2 = message.SurfaceAreaCm2,
+                BoundingBoxX = message.BoundingBoxX,
+                BoundingBoxY = message.BoundingBoxY,
+                BoundingBoxZ = message.BoundingBoxZ,
                 IsManifold = message.IsManifold,
                 TriangleCount = message.TriangleCount
             },
             CorrelationId = context.CorrelationId?.ToString()
         };
 
-        var result = await _orchestrator.CalculatePriceAsync(pricingRequest, context.CancellationToken);
+        await _orchestrator.CalculatePriceAsync(pricingRequest, context.CancellationToken);
 
-        // Publish result
-        await context.Publish<PriceCalculatedEvent>(new
-        {
-            PricingAuditId = Guid.NewGuid(), // In real impl, this comes from DB save
-            FileId = message.FileId,
-            CustomerId = message.CustomerId,
-            MaterialId = pricingRequest.MaterialId,
-            ProcessId = pricingRequest.ManufacturingProcessId,
-            Quantity = pricingRequest.Quantity,
-            Strategy = result.Strategy.ToString(),
-            Breakdown = new
-            {
-                MaterialCost = result.MaterialCost,
-                SupportCost = result.SupportMaterialCost,
-                MachineTimeCost = result.MachineTimeCost,
-                SetupCost = result.SetupCost,
-                ComplexitySurcharge = result.ComplexitySurcharge,
-                MarginAmount = result.MarginAmount,
-                TotalPrice = result.TotalPrice
-            },
-            Currency = "THB",
-            ConfidenceLevel = result.ConfidenceLevel,
-            ValidUntil = DateTime.UtcNow.AddDays(7),
-            CalculatedAt = DateTime.UtcNow
-        }, context.CancellationToken);
-
-        _logger.LogInformation("Price calculated and published for FileId: {FileId}", message.FileId);
+        _logger.LogInformation("Price calculation triggered for FileId: {FileId}", message.FileId);
     }
 }

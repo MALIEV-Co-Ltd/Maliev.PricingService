@@ -18,28 +18,17 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Switch to PackageReference for CI build
-        run: |
-          # Replace ProjectReference with PackageReference in all service csproj files
-          find . -name "*.csproj" -type f -exec sed -i \
-            's|<ProjectReference Include=".*Maliev.Aspire.ServiceDefaults.*.csproj" />|<PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="1.0.*" />|g' \
-            {} \;
-          find . -name "*.csproj" -type f -exec sed -i \
-            's|<ProjectReference Include=".*Maliev.MessagingContracts.*.csproj" />|<PackageReference Include="Maliev.MessagingContracts" Version="1.0.*" />|g' \
-            {} \;
-          echo "Switched to PackageReference for ServiceDefaults and MessagingContracts"
-
       - name: Restore dependencies
-        run: dotnet restore Maliev.QuotationService.sln
+        run: dotnet restore Maliev.PricingService.slnx
         env:
           NUGET_USERNAME: ${{ github.actor }}
           NUGET_PASSWORD: ${{ secrets.GITOPS_PAT }}
 
       - name: Build
-        run: dotnet build Maliev.QuotationService.sln --no-restore
+        run: dotnet build Maliev.PricingService.slnx --no-restore
 
       - name: Test
-        run: dotnet test Maliev.QuotationService.sln --no-build --verbosity normal
+        run: dotnet test Maliev.PricingService.slnx --no-build --verbosity normal
         working-directory: ${{ github.workspace }}
 
       - name: Authenticate to Google Cloud
@@ -60,9 +49,9 @@ jobs:
             docker build \
             --secret id=nuget_username,env=NUGET_USERNAME \
             --secret id=nuget_password,env=NUGET_PASSWORD \
-            -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-quotation-service:${{ github.sha }} \
-            -f Maliev.QuotationService.Api/Dockerfile .
-          docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-quotation-service:${{ github.sha }}
+            -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-pricing-service:${{ github.sha }} \
+            -f Maliev.PricingService.Api/Dockerfile .
+          docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-pricing-service:${{ github.sha }}
 
       - name: Checkout maliev-gitops repository
         uses: actions/checkout@v5
@@ -77,10 +66,10 @@ jobs:
 
       - name: Update image tag in maliev-gitops using Kustomize
         run: |
-          cd maliev-gitops/3-apps/maliev-quotation-service/overlays/production
+          cd maliev-gitops/3-apps/maliev-pricing-service/overlays/production
           kustomize edit set image \
-            asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-quotation-service=\
-          asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-quotation-service:${{ github.sha }}
+            asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-pricing-service=\
+          asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-prod/maliev-pricing-service:${{ github.sha }}
 
       - name: Create Pull Request
         env:
@@ -88,13 +77,13 @@ jobs:
           PR_BODY: |
             Automated GitOps Update - **PRODUCTION**
 
-            - **Service**: QuotationService
+            - **Service**: PricingService
             - **Environment**: Production
             - **Image Tag**: ${{ github.sha }}
             - **Source Branch**: ${{ github.ref_name }}
             - **Commit**: ${{ github.sha }}
 
-            Updates maliev-quotation-service image in production overlay.
+            Updates maliev-pricing-service image in production overlay.
             **WARNING**: This is a production deployment and should be reviewed before merging.
             This PR was automatically created by GitHub Actions.
             Once merged, ArgoCD will automatically sync the changes to the maliev-prod namespace.
@@ -108,7 +97,7 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
           # Create a new branch for this update
-          BRANCH_NAME="quotation-service/prod-${{ github.sha }}"
+          BRANCH_NAME="pricing-service/prod-${{ github.sha }}"
           git checkout -b $BRANCH_NAME
 
           # Commit and push changes to the new branch
@@ -118,12 +107,12 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore(prod): Update QuotationService image to ${{ github.sha }}"
+          git commit -m "chore(prod): Update PricingService image to ${{ github.sha }}"
           git push origin $BRANCH_NAME
 
           # Create pull request using GitHub CLI
           gh pr create \
-            --title "chore(prod): Update quotation-service" \
+            --title "chore(prod): Update pricing-service" \
             --body "$PR_BODY" \
             --base main \
             --head $BRANCH_NAME \

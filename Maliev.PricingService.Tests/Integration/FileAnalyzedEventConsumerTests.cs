@@ -70,12 +70,12 @@ public class FileAnalyzedEventConsumerTests : IClassFixture<PricingServiceTestFa
         {
             FileId = fileId,
             CustomerId = customerId,
-            Volume = 10.0,
-            SupportVolume = 2.0,
-            SurfaceArea = 50.0,
-            BoundingBoxX = 10.0,
-            BoundingBoxY = 10.0,
-            BoundingBoxZ = 10.0,
+            VolumeCm3 = 10.0m,
+            SupportVolumeCm3 = 2.0m,
+            SurfaceAreaCm2 = 50.0m,
+            BoundingBoxX = 10.0m,
+            BoundingBoxY = 10.0m,
+            BoundingBoxZ = 10.0m,
             IsManifold = true,
             TriangleCount = 1000
         };

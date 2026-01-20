@@ -1,6 +1,4 @@
 <Solution>
-  <Project Path="../Maliev.Aspire/Maliev.Aspire.ServiceDefaults/Maliev.Aspire.ServiceDefaults.csproj" />
-  <Project Path="../Maliev.MessagingContracts/generated/csharp/Maliev.MessagingContracts.csproj" />
   <Project Path="Maliev.PricingService.Api/Maliev.PricingService.Api.csproj" />
   <Project Path="Maliev.PricingService.Data/Maliev.PricingService.Data.csproj" />
   <Project Path="Maliev.PricingService.Tests/Maliev.PricingService.Tests.csproj" />

@@ -27,6 +27,16 @@ public class PricingDbContext : DbContext
     /// </summary>
     public DbSet<PricingAuditRecord> PricingAuditRecords => Set<PricingAuditRecord>();
 
+    /// <summary>
+    /// Gets or sets the pricing training data.
+    /// </summary>
+    public DbSet<PricingTrainingData> PricingTrainingData => Set<PricingTrainingData>();
+
+    /// <summary>
+    /// Gets or sets the pricing models.
+    /// </summary>
+    public DbSet<PricingModel> PricingModels => Set<PricingModel>();
+
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,8 +65,49 @@ public class PricingDbContext : DbContext
             builder.Property(x => x.InputVolumeCm3).HasPrecision(18, 6);
             builder.Property(x => x.InputSupportVolumeCm3).HasPrecision(18, 6);
             builder.Property(x => x.InputSurfaceAreaCm2).HasPrecision(18, 6);
+            builder.Property(x => x.MaterialCost).HasPrecision(18, 2);
+            builder.Property(x => x.SupportMaterialCost).HasPrecision(18, 2);
+            builder.Property(x => x.MachineTimeCost).HasPrecision(18, 2);
+            builder.Property(x => x.SetupCost).HasPrecision(18, 2);
+            builder.Property(x => x.ComplexitySurcharge).HasPrecision(18, 2);
+            builder.Property(x => x.SubtotalBeforeMargin).HasPrecision(18, 2);
+            builder.Property(x => x.MarginAmount).HasPrecision(18, 2);
             builder.Property(x => x.TotalUnitPrice).HasPrecision(18, 2);
             builder.Property(x => x.TotalPrice).HasPrecision(18, 2);
+            builder.Property(x => x.ConfigMaterialPricePerCm3).HasPrecision(18, 6);
+            builder.Property(x => x.ConfigSupportPricePerCm3).HasPrecision(18, 6);
+            builder.Property(x => x.ConfigMachineHourlyRate).HasPrecision(18, 2);
+            builder.Property(x => x.ConfigMarginMultiplier).HasPrecision(18, 2);
+            builder.Property(x => x.ConfidenceLevel).HasPrecision(18, 2);
+        });
+
+        // PricingTrainingData Configuration
+        modelBuilder.Entity<PricingTrainingData>(builder =>
+        {
+            builder.ToTable("pricing_training_data");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            builder.Property(x => x.ActualMaterialUsedCm3).HasPrecision(18, 6);
+            builder.Property(x => x.ActualPrintTimeHours).HasPrecision(18, 4);
+            builder.Property(x => x.ActualLaborHours).HasPrecision(18, 4);
+            builder.Property(x => x.ActualTotalCost).HasPrecision(18, 2);
+            builder.Property(x => x.ActualProfitMargin).HasPrecision(18, 4);
+
+            builder.HasOne(x => x.PricingAuditRecord)
+                   .WithOne(x => x.TrainingData)
+                   .HasForeignKey<PricingTrainingData>(x => x.PricingAuditRecordId);
+        });
+
+        // PricingModel Configuration
+        modelBuilder.Entity<PricingModel>(builder =>
+        {
+            builder.ToTable("pricing_models");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            builder.Property(x => x.MeanAbsoluteError).HasPrecision(18, 6);
+            builder.Property(x => x.MeanAbsolutePercentageError).HasPrecision(18, 4);
+            builder.Property(x => x.RSquared).HasPrecision(18, 4);
+            builder.Property(x => x.RowVersion).HasColumnName("row_version").HasDefaultValueSql("decode('0000000000000000', 'hex')");
         });
     }
 }
