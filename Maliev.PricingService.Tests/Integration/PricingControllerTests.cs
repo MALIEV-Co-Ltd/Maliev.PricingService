@@ -5,6 +5,7 @@ using Maliev.PricingService.Tests.TestFixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Maliev.PricingService.Data;
 using Xunit;
+using Maliev.Aspire.ServiceDefaults.Testing;
 
 namespace Maliev.PricingService.Tests.Integration;
 
@@ -16,7 +17,7 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
     public PricingControllerTests(PricingServiceTestFactory factory)
     {
         _factory = factory;
-        _client = _factory.CreateClient();
+        _client = _factory.CreateClient().WithTestAuth(permissions: [PricingPermissions.CalculationsCreate]);
     }
 
     [Fact]
