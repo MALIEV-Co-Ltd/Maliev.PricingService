@@ -17,16 +17,16 @@ namespace Maliev.PricingService.Tests.TestFixtures;
 
 public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder().WithName("postgres:18")
+    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder().WithImage("postgres:18")
         .WithDatabase("pricing_test")
         .WithUsername("postgres")
         .WithPassword("postgres")
         .Build();
 
-    private readonly RedisContainer _redisContainer = new RedisBuilder().WithName("redis:latest")
+    private readonly RedisContainer _redisContainer = new RedisBuilder().WithImage("redis:latest")
         .Build();
 
-    private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder().WithName("rabbitmq:3-management")
+    private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder().WithImage("rabbitmq:3-management")
         .WithUsername("guest")
         .WithPassword("guest")
         .Build();
