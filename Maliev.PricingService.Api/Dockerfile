@@ -1,26 +1,51 @@
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-USER app
-WORKDIR /app
-EXPOSE 8080
-EXPOSE 8443
-
+# syntax=docker/dockerfile:1.4
+# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["Maliev.PricingService/Maliev.PricingService.Api/Maliev.PricingService.Api.csproj", "Maliev.PricingService/Maliev.PricingService.Api/"]
-COPY ["Maliev.PricingService/Maliev.PricingService.Data/Maliev.PricingService.Data.csproj", "Maliev.PricingService/Maliev.PricingService.Data/"]
-COPY ["Maliev.Aspire/Maliev.Aspire.ServiceDefaults/Maliev.Aspire.ServiceDefaults.csproj", "Maliev.Aspire/Maliev.Aspire.ServiceDefaults/"]
-COPY ["Maliev.MessagingContracts/generated/csharp/Maliev.MessagingContracts.csproj", "Maliev.MessagingContracts/generated/csharp/"]
-RUN dotnet restore "./Maliev.PricingService/Maliev.PricingService.Api/Maliev.PricingService.Api.csproj"
+
+# Copy nuget.config and project files
+COPY nuget.config ./
+COPY ["Maliev.PricingService.Api/Maliev.PricingService.Api.csproj", "Maliev.PricingService.Api/"]
+COPY ["Maliev.PricingService.Data/Maliev.PricingService.Data.csproj", "Maliev.PricingService.Data/"]
+
+# Restore dependencies with private NuGet feed credentials
+RUN --mount=type=secret,id=nuget_username \
+    --mount=type=secret,id=nuget_password \
+    NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
+    NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
+    dotnet restore "Maliev.PricingService.Api/Maliev.PricingService.Api.csproj"
+
+# Copy everything and build
 COPY . .
-WORKDIR "/src/Maliev.PricingService/Maliev.PricingService.Api"
-RUN dotnet build "./Maliev.PricingService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
+WORKDIR "/src/Maliev.PricingService.Api"
+RUN dotnet build "Maliev.PricingService.Api.csproj" -c Release -o /app/build
 
+# Publish stage
 FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Maliev.PricingService.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "Maliev.PricingService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-FROM base AS final
+# Final stage/image
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+
+# Ensure 'app' owns the workdir (app user already exists in ASP.NET runtime image)
+RUN chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
+# Copy published application (now owned by app)
+COPY --chown=app:app --from=publish /app/publish .
+
+# Expose port
+EXPOSE 8080
+
+# Set environment variables
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/pricing/liveness || exit 1
+
 ENTRYPOINT ["dotnet", "Maliev.PricingService.Api.dll"]
