@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Maliev.Aspire.ServiceDefaults.Authorization;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -37,7 +38,7 @@ public class PricingController : ControllerBase
     [HttpPost("calculate")]
     [ProducesResponseType(typeof(PricingResult), 200)]
     [ProducesResponseType(400)]
-    [Authorize(Policy = PricingPermissions.CalculationsCreate)]
+    [RequirePermission(PricingPermissions.CalculationsCreate)]
     public async Task<ActionResult<PricingResult>> CalculatePrice([FromBody] PricingRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received ad-hoc pricing request for FileId: {FileId}", request.FileId);

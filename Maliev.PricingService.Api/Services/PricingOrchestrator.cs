@@ -153,7 +153,9 @@ public class PricingOrchestrator : IPricingOrchestrator
             }, cancellationToken);
 
             // 6. Update fallback cache (Task T017)
-            _cache.Set(cacheKey, result, TimeSpan.FromDays(7));
+            _cache.Set(cacheKey, result, new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(TimeSpan.FromDays(7))
+                .SetSize(1));
 
             return result;
         }

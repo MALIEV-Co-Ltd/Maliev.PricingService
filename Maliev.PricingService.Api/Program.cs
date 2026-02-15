@@ -1,3 +1,4 @@
+using Maliev.Aspire.ServiceDefaults;
 using Maliev.PricingService.Api.Clients;
 using Maliev.PricingService.Api.Consumers;
 using Maliev.PricingService.Api.Interfaces;
@@ -29,7 +30,7 @@ try
     builder.AddPostgresDbContext<PricingDbContext>(connectionName: "PricingDbContext");
 
     // Add Redis Distributed Cache
-    builder.AddRedisDistributedCache(instanceName: "pricing:");
+    builder.AddStandardCache("pricing:"); // Redis + in-memory fallback, memory-optimized
 
     // Add in-memory cache for pricing configurations
     builder.Services.AddMemoryCache();
@@ -42,7 +43,7 @@ try
     });
 
     // --- API Configuration ---
-    builder.AddDefaultCors(); // CORS from CORS:AllowedOrigins config
+    builder.AddStandardCors(); // CORS with fail-fast validation
     builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
 
     // JWT Authentication
@@ -70,7 +71,7 @@ try
     builder.Services.AddScoped<IPricingOrchestrator, PricingOrchestrator>();
 
     // Authorization
-    builder.Services.AddAuthorization();
+    builder.Services.AddPermissionAuthorization();
 
     builder.Services.AddControllers();
 

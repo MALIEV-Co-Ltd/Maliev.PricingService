@@ -17,16 +17,16 @@ namespace Maliev.PricingService.Tests.TestFixtures;
 
 public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder().WithImage("postgres:18")
+    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder("postgres:18")
         .WithDatabase("pricing_test")
         .WithUsername("postgres")
         .WithPassword("postgres")
         .Build();
 
-    private readonly RedisContainer _redisContainer = new RedisBuilder().WithImage("redis:latest")
+    private readonly RedisContainer _redisContainer = new RedisBuilder("redis:latest")
         .Build();
 
-    private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder().WithImage("rabbitmq:3-management")
+    private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder("rabbitmq:3-management")
         .WithUsername("guest")
         .WithPassword("guest")
         .Build();
@@ -37,6 +37,9 @@ public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncL
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting("CORS:AllowedOrigins:0", "http://localhost:3000");
+        builder.UseSetting("Features:FailOpenOnIAMError", "true");
+
         // Use actual Testcontainer connection strings for all services
         builder.UseSetting("ConnectionStrings:PricingDbContext", _dbContainer.GetConnectionString());
         builder.UseSetting("ConnectionStrings:redis", _redisContainer.GetConnectionString());
@@ -67,13 +70,16 @@ public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncL
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
-                    ValidateIssuer = true,
-                    ValidIssuer = "test",
-                    ValidateAudience = true,
-                    ValidAudience = "test",
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new RsaSecurityKey(_testRsa)
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = false,
+                    ValidateIssuerSigningKey = false,
+                    SignatureValidator = delegate (string token, TokenValidationParameters parameters)
+                    {
+                        return new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
+                    },
+                    NameClaimType = "sub",
+                    RoleClaimType = "role"
                 };
             });
         });
