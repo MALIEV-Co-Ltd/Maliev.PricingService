@@ -3,6 +3,7 @@ using System;
 using Maliev.PricingService.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Maliev.PricingService.Data.Migrations
 {
     [DbContext(typeof(PricingDbContext))]
-    partial class PricingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260216132117_AddPricingSnapshot")]
+    partial class AddPricingSnapshot
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

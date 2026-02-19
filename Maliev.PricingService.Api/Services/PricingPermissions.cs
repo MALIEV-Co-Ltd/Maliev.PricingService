@@ -27,6 +27,16 @@ public static class PricingPermissions
     /// <summary>Permission to retire ML models.</summary>
     public const string ModelsRetire = "pricing.models.retire";
 
+    // Snapshot Operations
+    /// <summary>Permission to create pricing snapshots.</summary>
+    public const string SnapshotsCreate = "pricing.snapshots.create";
+    /// <summary>Permission to read pricing snapshots.</summary>
+    public const string SnapshotsRead = "pricing.snapshots.read";
+    /// <summary>Permission to accept pricing snapshots.</summary>
+    public const string SnapshotsAccept = "pricing.snapshots.accept";
+    /// <summary>Permission to supersede pricing snapshots.</summary>
+    public const string SnapshotsSupersede = "pricing.snapshots.supersede";
+
     /// <summary>
     /// Collection of all defined pricing permissions with descriptions.
     /// </summary>
@@ -41,7 +51,11 @@ public static class PricingPermissions
         { ModelsRead, "Read ML pricing model details" },
         { ModelsTrain, "Train new ML pricing models" },
         { ModelsDeploy, "Deploy ML pricing models to production" },
-        { ModelsRetire, "Retire ML pricing models" }
+        { ModelsRetire, "Retire ML pricing models" },
+        { SnapshotsCreate, "Create pricing snapshots" },
+        { SnapshotsRead, "Read pricing snapshots" },
+        { SnapshotsAccept, "Accept pricing snapshots" },
+        { SnapshotsSupersede, "Supersede pricing snapshots with a newer version" }
     };
 
     /// <summary>

@@ -69,7 +69,7 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/v1/pricing/calculate", request);
+        var response = await _client.PostAsJsonAsync("/pricing/v1/pricing/calculate", request);
 
         // Assert
         if (!response.IsSuccessStatusCode)
@@ -111,7 +111,7 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/v1/pricing/calculate", request);
+        var response = await _client.PostAsJsonAsync("/pricing/v1/pricing/calculate", request);
 
         // Assert
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);

@@ -12,7 +12,7 @@ namespace Maliev.PricingService.Api.Controllers;
 /// </summary>
 [ApiController]
 [ApiVersion("1.0")]
-[Route("v{version:apiVersion}/pricing")]
+[Route("pricing/v{version:apiVersion}/pricing")]
 public class PricingController : ControllerBase
 {
     private readonly IPricingOrchestrator _orchestrator;

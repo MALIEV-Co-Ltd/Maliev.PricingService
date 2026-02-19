@@ -1,3 +1,4 @@
+using Maliev.PricingService.Data.Configurations;
 using Maliev.PricingService.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,11 @@ public class PricingDbContext : DbContext
     public DbSet<PricingTrainingData> PricingTrainingData => Set<PricingTrainingData>();
 
     /// <summary>
+    /// Gets or sets the pricing snapshots.
+    /// </summary>
+    public DbSet<PricingSnapshot> PricingSnapshots => Set<PricingSnapshot>();
+
+    /// <summary>
     /// Gets or sets the pricing models.
     /// </summary>
     public DbSet<PricingModel> PricingModels => Set<PricingModel>();
@@ -41,6 +47,9 @@ public class PricingDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // PricingSnapshot Configuration
+        modelBuilder.ApplyConfiguration(new PricingSnapshotConfiguration());
 
         // PricingConfiguration Configuration
         modelBuilder.Entity<PricingConfiguration>(builder =>
