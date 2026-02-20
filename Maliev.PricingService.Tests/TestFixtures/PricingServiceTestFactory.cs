@@ -44,7 +44,7 @@ public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncL
         builder.UseSetting("ConnectionStrings:PricingDbContext", _dbContainer.GetConnectionString());
         builder.UseSetting("ConnectionStrings:redis", _redisContainer.GetConnectionString());
         builder.UseSetting("ConnectionStrings:rabbitmq", _rabbitMqContainer.GetConnectionString());
-        
+
         // The service expects Jwt:PublicKey to be a Base64-encoded PEM string
         var publicKeyPem = _testRsa.ExportSubjectPublicKeyInfoPem();
         var publicKeyBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(publicKeyPem));

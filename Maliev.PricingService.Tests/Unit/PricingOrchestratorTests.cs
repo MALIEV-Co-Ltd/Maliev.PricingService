@@ -114,7 +114,7 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
         // Assert
         Assert.NotNull(result);
         Assert.Equal(95.00m, result.TotalUnitPrice); // 5% discount applied (100 * 0.95)
-        
+
         // Verify Audit
         var audit = await db.PricingAuditRecords.FirstOrDefaultAsync(a => a.FileId == request.FileId);
         Assert.NotNull(audit);
@@ -127,7 +127,7 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
         // Arrange
         var materialId = Guid.NewGuid();
         var processId = Guid.NewGuid();
-        
+
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
 
@@ -191,7 +191,7 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
         // Arrange
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
-        
+
         var request = new PricingRequest
         {
             FileId = Guid.NewGuid(),
@@ -200,16 +200,16 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
             MaterialCode = "MAT",
             ManufacturingProcessId = Guid.NewGuid(), // Random ID
             ManufacturingProcessName = "PROC",
-            Geometry = new GeometryMetrics 
-            { 
-                VolumeCm3 = 10, 
-                SupportVolumeCm3 = 0, 
+            Geometry = new GeometryMetrics
+            {
+                VolumeCm3 = 10,
+                SupportVolumeCm3 = 0,
                 SurfaceAreaCm2 = 10,
                 BoundingBoxX = 10,
                 BoundingBoxY = 10,
                 BoundingBoxZ = 10,
                 IsManifold = true,
-                TriangleCount = 100 
+                TriangleCount = 100
             },
             Quantity = 1
         };
@@ -227,10 +227,10 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
         var materialId = Guid.NewGuid();
         var processId = Guid.NewGuid();
         var cacheKey = $"PriceFallback_{materialId}_{processId}";
-        
-        var fallbackResult = new PricingResult 
-        { 
-            TotalUnitPrice = 999, 
+
+        var fallbackResult = new PricingResult
+        {
+            TotalUnitPrice = 999,
             TotalPrice = 999,
             Strategy = ServicePricingStrategy.RuleBased,
             MaterialCost = 0,
@@ -274,10 +274,10 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
             MaterialCode = "MAT",
             ManufacturingProcessId = processId,
             ManufacturingProcessName = "PROC",
-            Geometry = new GeometryMetrics 
-            { 
-                VolumeCm3 = 10, 
-                SupportVolumeCm3 = 0, 
+            Geometry = new GeometryMetrics
+            {
+                VolumeCm3 = 10,
+                SupportVolumeCm3 = 0,
                 SurfaceAreaCm2 = 10,
                 BoundingBoxX = 10,
                 BoundingBoxY = 10,

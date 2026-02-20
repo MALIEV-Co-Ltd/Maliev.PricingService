@@ -178,16 +178,16 @@ public class PricingOrchestrator : IPricingOrchestrator
         // Task T013: Add Loyalty Tier lookup and discount calculation logic.
         // In a real scenario, this would call a CustomerService or lookup from DB.
         // For now, we'll simulate a tier lookup.
-        
+
         decimal discountPercent = 0;
-        
+
         // Simulating tier lookup (this could be a DB query or cache hit)
         // Hardcoded simulation for demonstration:
         if (customerId != Guid.Empty)
         {
             // Simulate Gold tier for some IDs, etc.
             // For now, let's just assume 5% discount for all recognized customers as a placeholder
-            discountPercent = 5.0m; 
+            discountPercent = 5.0m;
         }
 
         if (discountPercent > 0)
@@ -196,10 +196,10 @@ public class PricingOrchestrator : IPricingOrchestrator
             decimal newUnitPrice = Math.Round(result.TotalUnitPrice * discountMultiplier, 2);
             decimal newTotalPrice = Math.Round(result.TotalPrice * discountMultiplier, 2);
 
-            return result with 
-            { 
-                TotalUnitPrice = newUnitPrice, 
-                TotalPrice = newTotalPrice 
+            return result with
+            {
+                TotalUnitPrice = newUnitPrice,
+                TotalPrice = newTotalPrice
             };
         }
 
