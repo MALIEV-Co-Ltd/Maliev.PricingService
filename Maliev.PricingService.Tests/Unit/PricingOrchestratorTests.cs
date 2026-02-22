@@ -125,7 +125,7 @@ public class PricingOrchestratorTests : IClassFixture<PricingServiceTestFactory>
         var db = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
 
         _mockMaterialClient.Setup(m => m.GetMaterialAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((MaterialDto)null);
+            .ReturnsAsync((MaterialDto?)null);
 
         var request = new PricingRequest
         {

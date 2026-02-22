@@ -93,7 +93,7 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
         // Arrange
         var materialId = Guid.NewGuid();
         _materialClientMock.Setup(x => x.GetMaterialAsync(materialId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((MaterialDto)null);
+            .ReturnsAsync((MaterialDto?)null);
 
         var request = new PricingRequest
         {
