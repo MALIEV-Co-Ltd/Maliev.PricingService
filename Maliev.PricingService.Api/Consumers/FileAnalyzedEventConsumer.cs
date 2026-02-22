@@ -41,6 +41,10 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
             CustomerId = message.CustomerId,
             MaterialId = Guid.Empty, // Placeholder: should come from context or defaults
             MaterialCode = "DEFAULT",
+            Technology = ManufacturingTechnology.Fdm,
+            LayerHeightMm = 0.2m,
+            SupportEnabled = false,
+            HeightMm = message.BoundingBoxZ,
             ManufacturingProcessId = Guid.Empty, // Placeholder
             ManufacturingProcessName = "DEFAULT",
             Quantity = 1,

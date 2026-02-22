@@ -49,22 +49,6 @@ namespace Maliev.PricingService.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.Property<decimal>("ConfigMachineHourlyRate")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal>("ConfigMarginMultiplier")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal>("ConfigMaterialPricePerCm3")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
-
-                    b.Property<decimal>("ConfigSupportPricePerCm3")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
-
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -107,19 +91,14 @@ namespace Maliev.PricingService.Data.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");
 
-                    b.Property<string>("MLModelVersion")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
                     b.Property<decimal>("MachineTimeCost")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.Property<Guid>("ManufacturingProcessId")
+                    b.Property<Guid?>("ManufacturingProcessId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ManufacturingProcessName")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -139,7 +118,7 @@ namespace Maliev.PricingService.Data.Migrations
                     b.Property<Guid>("MaterialId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("PricingConfigurationId")
+                    b.Property<Guid?>("PricingConfigurationId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Quantity")
@@ -162,6 +141,11 @@ namespace Maliev.PricingService.Data.Migrations
                     b.Property<decimal>("SupportMaterialCost")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Technology")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<decimal>("TotalPrice")
                         .HasPrecision(18, 2)
@@ -492,9 +476,7 @@ namespace Maliev.PricingService.Data.Migrations
                 {
                     b.HasOne("Maliev.PricingService.Data.Entities.PricingConfiguration", "PricingConfiguration")
                         .WithMany()
-                        .HasForeignKey("PricingConfigurationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("PricingConfigurationId");
 
                     b.Navigation("PricingConfiguration");
                 });

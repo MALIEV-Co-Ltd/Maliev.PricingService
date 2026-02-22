@@ -1,11 +1,19 @@
 using System.Net.Http.Json;
 using Maliev.PricingService.Api.Services;
+using Maliev.PricingService.Api.Clients;
 using Maliev.PricingService.Data.Entities;
 using Maliev.PricingService.Tests.TestFixtures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.TestHost;
 using Maliev.PricingService.Data;
 using Xunit;
 using Maliev.Aspire.ServiceDefaults.Testing;
+using Moq;
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Maliev.PricingService.Tests.Integration;
 
@@ -13,11 +21,18 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
 {
     private readonly PricingServiceTestFactory _factory;
     private readonly HttpClient _client;
+    private readonly Mock<IMaterialServiceClient> _materialClientMock = new();
 
     public PricingControllerTests(PricingServiceTestFactory factory)
     {
         _factory = factory;
-        _client = _factory.CreateClient().WithTestAuth(permissions: [PricingPermissions.CalculationsCreate]);
+        _client = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton(_materialClientMock.Object);
+            });
+        }).CreateClient().WithTestAuth(permissions: [PricingPermissions.CalculationsCreate]);
     }
 
     [Fact]
@@ -25,26 +40,15 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
     {
         // Arrange
         var materialId = Guid.NewGuid();
-        var processId = Guid.NewGuid();
 
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
-            db.PricingConfigurations.Add(new PricingConfiguration
+        _materialClientMock.Setup(x => x.GetMaterialAsync(materialId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MaterialDto
             {
-                MaterialId = materialId,
-                ManufacturingProcessId = processId,
-                MaterialPricePerCm3 = 10.0m,
-                SupportMaterialPricePerCm3 = 5.0m,
-                MachineHourlyRate = 50.0m,
-                PrintSpeedCm3PerHour = 100.0m,
-                SetupCostFlat = 25.0m,
-                MarginMultiplier = 1.2m,
-                EffectiveFrom = DateTime.UtcNow.AddDays(-1),
-                CreatedBy = "Test"
+                Id = materialId,
+                DensityGramPerCm3 = 1.24m,
+                CostPerKg = 600,
+                ProcessParameters = new Dictionary<string, string>()
             });
-            await db.SaveChangesAsync();
-        }
 
         var request = new PricingRequest
         {
@@ -52,8 +56,7 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
             CustomerId = Guid.NewGuid(),
             MaterialId = materialId,
             MaterialCode = "TEST-MAT",
-            ManufacturingProcessId = processId,
-            ManufacturingProcessName = "TEST-PROC",
+            Technology = ManufacturingTechnology.Fdm,
             Quantity = 1,
             Geometry = new GeometryMetrics
             {
@@ -85,17 +88,20 @@ public class PricingControllerTests : IClassFixture<PricingServiceTestFactory>
     }
 
     [Fact]
-    public async Task CalculatePrice_WithMissingConfiguration_ReturnsBadRequest()
+    public async Task CalculatePrice_WithMissingMaterial_ReturnsNotFound()
     {
         // Arrange
+        var materialId = Guid.NewGuid();
+        _materialClientMock.Setup(x => x.GetMaterialAsync(materialId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((MaterialDto)null);
+
         var request = new PricingRequest
         {
             FileId = Guid.NewGuid(),
             CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
+            MaterialId = materialId,
             MaterialCode = "NON-EXISTENT",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "NON-EXISTENT",
+            Technology = ManufacturingTechnology.Fdm,
             Quantity = 1,
             Geometry = new GeometryMetrics
             {

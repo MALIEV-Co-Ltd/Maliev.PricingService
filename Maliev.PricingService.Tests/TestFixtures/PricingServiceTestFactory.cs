@@ -98,8 +98,7 @@ public class PricingServiceTestFactory : WebApplicationFactory<Program>, IAsyncL
 
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
-        await context.Database.EnsureDeletedAsync();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.MigrateAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

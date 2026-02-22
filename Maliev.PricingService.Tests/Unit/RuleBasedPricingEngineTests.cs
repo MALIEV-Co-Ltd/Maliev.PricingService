@@ -1,5 +1,9 @@
 using Maliev.PricingService.Api.Services;
-using Maliev.PricingService.Data.Entities;
+using Maliev.PricingService.Api.Services.Calculators;
+using Moq;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace Maliev.PricingService.Tests.Unit;
@@ -7,14 +11,16 @@ namespace Maliev.PricingService.Tests.Unit;
 public class RuleBasedPricingEngineTests
 {
     private readonly RuleBasedPricingEngine _sut;
+    private readonly Mock<IPricingCalculator> _calculatorMock = new();
 
     public RuleBasedPricingEngineTests()
     {
-        _sut = new RuleBasedPricingEngine();
+        _calculatorMock.Setup(x => x.Technology).Returns(ManufacturingTechnology.Fdm);
+        _sut = new RuleBasedPricingEngine(new[] { _calculatorMock.Object });
     }
 
     [Fact]
-    public async Task CalculateAsync_BasicCalculation_ReturnsCorrectTotals()
+    public async Task CalculateAsync_DelegatesToCorrectCalculator()
     {
         // Arrange
         var request = new PricingRequest
@@ -23,13 +29,12 @@ public class RuleBasedPricingEngineTests
             CustomerId = Guid.NewGuid(),
             MaterialId = Guid.NewGuid(),
             MaterialCode = "MAT",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "PROC",
+            Technology = ManufacturingTechnology.Fdm,
             Geometry = new GeometryMetrics
             {
                 VolumeCm3 = 10,
                 SupportVolumeCm3 = 2,
-                SurfaceAreaCm2 = 100, // Ratio 10
+                SurfaceAreaCm2 = 100,
                 BoundingBoxX = 10,
                 BoundingBoxY = 10,
                 BoundingBoxZ = 10,
@@ -39,49 +44,39 @@ public class RuleBasedPricingEngineTests
             Quantity = 1
         };
 
-        var config = new PricingConfiguration
+        var material = new MaterialData { Density = 1.24m, CostPerKg = 600 };
+        var rates = new MachineRates { FdmMachineHourlyRate = 150 };
+
+        var expectedResult = new PricingResult
         {
-            MaterialPricePerCm3 = 10,
-            SupportMaterialPricePerCm3 = 5,
-            PrintSpeedCm3PerHour = 10,
-            MachineHourlyRate = 50,
-            SetupCostFlat = 20,
-            MarginMultiplier = 1.2m,
-            ComplexityThreshold = 20, // High threshold, no surcharge
-            MinimumOrderPrice = 0
+            Strategy = PricingStrategy.RuleBased,
+            MaterialCost = 100,
+            SupportMaterialCost = 0,
+            MachineTimeCost = 50,
+            SetupCost = 20,
+            ComplexitySurcharge = 0,
+            SubtotalBeforeMargin = 170,
+            MarginAmount = 30,
+            TotalUnitPrice = 200,
+            TotalPrice = 200,
+            ConfidenceLevel = 1.0m,
+            ValidUntil = DateTime.UtcNow.AddDays(30),
+            CalculationDuration = TimeSpan.Zero
         };
 
-        // Expected:
-        // Material: 10 * 10 = 100
-        // Support: 2 * 5 = 10
-        // Total Material: 110
-        // Time: 10 / 10 = 1 hour
-        // Machine: 1 * 50 = 50
-        // Setup: 20
-        // Base: 110 + 50 + 20 = 180
-        // Surcharge: 0
-        // Subtotal: 180
-        // Margin: 180 * (1.2 - 1) = 36
-        // Unit: 180 + 36 = 216
-        // Total: 216
+        _calculatorMock.Setup(x => x.CalculateAsync(request, material, rates, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResult);
 
         // Act
-        var result = await _sut.CalculateAsync(request, config);
+        var result = await _sut.CalculateAsync(request, material, rates);
 
         // Assert
-        Assert.Equal(100, result.MaterialCost);
-        Assert.Equal(10, result.SupportMaterialCost);
-        Assert.Equal(50, result.MachineTimeCost);
-        Assert.Equal(20, result.SetupCost);
-        Assert.Equal(0, result.ComplexitySurcharge);
-        Assert.Equal(180, result.SubtotalBeforeMargin);
-        Assert.Equal(36, result.MarginAmount);
-        Assert.Equal(216, result.TotalUnitPrice);
-        Assert.Equal(216, result.TotalPrice);
+        Assert.Equal(expectedResult.TotalUnitPrice, result.TotalUnitPrice);
+        _calculatorMock.Verify(x => x.CalculateAsync(request, material, rates, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task CalculateAsync_WithComplexitySurcharge_AppliesSurcharge()
+    public async Task CalculateAsync_ThrowsWhenNoCalculatorFound()
     {
         // Arrange
         var request = new PricingRequest
@@ -90,94 +85,11 @@ public class RuleBasedPricingEngineTests
             CustomerId = Guid.NewGuid(),
             MaterialId = Guid.NewGuid(),
             MaterialCode = "MAT",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "PROC",
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 10,
-                SupportVolumeCm3 = 0,
-                SurfaceAreaCm2 = 100, // Ratio 10
-                BoundingBoxX = 10,
-                BoundingBoxY = 10,
-                BoundingBoxZ = 10,
-                IsManifold = true,
-                TriangleCount = 100
-            },
-            Quantity = 1
+            Technology = ManufacturingTechnology.Sla, // No SLA calculator in SUT
+            Geometry = new GeometryMetrics { VolumeCm3 = 1, SupportVolumeCm3 = 0, SurfaceAreaCm2 = 1, BoundingBoxX = 1, BoundingBoxY = 1, BoundingBoxZ = 1, IsManifold = true, TriangleCount = 1 }
         };
 
-        var config = new PricingConfiguration
-        {
-            MaterialPricePerCm3 = 10,
-            SupportMaterialPricePerCm3 = 5,
-            PrintSpeedCm3PerHour = 10,
-            MachineHourlyRate = 50,
-            SetupCostFlat = 0,
-            MarginMultiplier = 1.0m, // No margin for simplicity
-            ComplexityThreshold = 5, // Ratio 10 > 5, applies surcharge
-            ComplexitySurchargePercent = 10 // 10%
-        };
-
-        // Expected:
-        // Material: 100
-        // Machine: 50
-        // Base: 150
-        // Surcharge: 150 * 0.10 = 15
-        // Subtotal: 165
-        // Total: 165
-
-        // Act
-        var result = await _sut.CalculateAsync(request, config);
-
-        // Assert
-        Assert.Equal(15, result.ComplexitySurcharge);
-        Assert.Equal(165, result.TotalUnitPrice);
-    }
-
-    [Fact]
-    public async Task CalculateAsync_BelowMinimumPrice_ReturnsMinimumPrice()
-    {
-        // Arrange
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "MAT",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "PROC",
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 1,
-                SupportVolumeCm3 = 0,
-                SurfaceAreaCm2 = 1,
-                BoundingBoxX = 1,
-                BoundingBoxY = 1,
-                BoundingBoxZ = 1,
-                IsManifold = true,
-                TriangleCount = 100
-            },
-            Quantity = 1
-        };
-
-        var config = new PricingConfiguration
-        {
-            MaterialPricePerCm3 = 1,
-            SupportMaterialPricePerCm3 = 1,
-            PrintSpeedCm3PerHour = 100,
-            MachineHourlyRate = 1,
-            SetupCostFlat = 0,
-            MarginMultiplier = 1.0m,
-            MinimumOrderPrice = 100
-        };
-
-        // Cost is very low, < 100
-
-        // Act
-        var result = await _sut.CalculateAsync(request, config);
-
-        // Assert
-        Assert.Equal(100, result.TotalUnitPrice);
-        Assert.Equal(100, result.TotalPrice);
+        // Act & Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.CalculateAsync(request, new MaterialData(), new MachineRates()));
     }
 }

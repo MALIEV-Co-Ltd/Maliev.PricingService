@@ -16,11 +16,13 @@ public interface IPricingEngine
     /// Calculates the price for a given set of inputs.
     /// </summary>
     /// <param name="request">The pricing request containing geometry and material information.</param>
-    /// <param name="configuration">The pricing configuration to use.</param>
+    /// <param name="material">The material details from MaterialService.</param>
+    /// <param name="rates">The machine rates from configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The pricing result with full breakdown.</returns>
     Task<PricingResult> CalculateAsync(
         PricingRequest request,
-        PricingConfiguration configuration,
+        MaterialData material,
+        MachineRates rates,
         CancellationToken cancellationToken = default);
 }

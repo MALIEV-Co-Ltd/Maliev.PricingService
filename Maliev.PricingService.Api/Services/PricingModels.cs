@@ -13,19 +13,73 @@ public enum PricingStrategy
     RuleBased = 1,
 
     /// <summary>
-    /// Machine learning enhanced calculation.
-    /// </summary>
-    MLEnhanced = 2,
-
-    /// <summary>
     /// Manual pricing by staff.
     /// </summary>
-    Manual = 3,
+    Manual = 3
+}
 
-    /// <summary>
-    /// Combination of rule-based with ML adjustments.
-    /// </summary>
-    Hybrid = 4
+/// <summary>
+/// Manufacturing technology selected by the customer.
+/// </summary>
+public enum ManufacturingTechnology
+{
+    /// <summary>Fused Deposition Modeling.</summary>
+    Fdm = 1,
+    /// <summary>Stereolithography.</summary>
+    Sla = 2,
+    /// <summary>CNC Machining.</summary>
+    Cnc = 3,
+    /// <summary>3D Scanning.</summary>
+    Scanning = 4,
+    /// <summary>3D Design.</summary>
+    Design = 5
+}
+
+/// <summary>
+/// Material data properties for pricing.
+/// </summary>
+public record MaterialData
+{
+    /// <summary>Density in g/cm³.</summary>
+    public decimal Density { get; init; }
+    /// <summary>Cost per kg (THB/kg).</summary>
+    public decimal CostPerKg { get; init; }
+
+    /// <summary>FDM volumetric flow rate (mm³/s).</summary>
+    public decimal FdmVolumetricFlowRate { get; init; }
+    /// <summary>FDM minimum layer time (seconds).</summary>
+    public decimal FdmMinLayerTime { get; init; }
+
+    /// <summary>SLA layer exposure time (seconds).</summary>
+    public decimal SlaLayerExposure { get; init; }
+    /// <summary>SLA lift time (seconds).</summary>
+    public decimal SlaLiftTime { get; init; }
+
+    /// <summary>CNC machinability rating (0.0-1.0).</summary>
+    public decimal CncMachinabilityRating { get; init; }
+}
+
+/// <summary>
+/// Machine rates and setup fees from configuration.
+/// </summary>
+public record MachineRates
+{
+    /// <summary>FDM machine hourly rate (THB/hour).</summary>
+    public decimal FdmMachineHourlyRate { get; init; }
+    /// <summary>FDM setup fee (THB).</summary>
+    public decimal FdmSetupFee { get; init; }
+
+    /// <summary>SLA machine hourly rate (THB/hour).</summary>
+    public decimal SlaMachineHourlyRate { get; init; }
+    /// <summary>SLA setup fee (THB).</summary>
+    public decimal SlaSetupFee { get; init; }
+
+    /// <summary>CNC machine hourly rate (THB/hour).</summary>
+    public decimal CncMachineHourlyRate { get; init; }
+    /// <summary>CNC setup fee (THB).</summary>
+    public decimal CncSetupFee { get; init; }
+    /// <summary>CNC material removal rate (mm³/hour).</summary>
+    public decimal CncMaterialRemovalRate { get; init; }
 }
 
 /// <summary>
@@ -54,14 +108,39 @@ public record PricingRequest
     public required string MaterialCode { get; init; }
 
     /// <summary>
-    /// Manufacturing process ID selected.
+    /// Manufacturing technology selected.
     /// </summary>
-    public required Guid ManufacturingProcessId { get; init; }
+    public required ManufacturingTechnology Technology { get; init; }
 
     /// <summary>
-    /// Manufacturing process name (for denormalization).
+    /// Manufacturing process ID selected (backward compatibility).
     /// </summary>
-    public required string ManufacturingProcessName { get; init; }
+    public Guid? ManufacturingProcessId { get; init; }
+
+    /// <summary>
+    /// Manufacturing process name (backward compatibility).
+    /// </summary>
+    public string? ManufacturingProcessName { get; init; }
+
+    /// <summary>
+    /// Layer height in millimeters.
+    /// </summary>
+    public decimal LayerHeightMm { get; init; } = 0.2m;
+
+    /// <summary>
+    /// Whether support structures are enabled.
+    /// </summary>
+    public bool SupportEnabled { get; init; } = false;
+
+    /// <summary>
+    /// Part height along Z-axis in millimeters.
+    /// </summary>
+    public decimal HeightMm { get; init; }
+
+    /// <summary>
+    /// For Scanning technology only.
+    /// </summary>
+    public string? ScanningTier { get; init; }
 
     /// <summary>
     /// Quantity of parts.
@@ -136,9 +215,9 @@ public record PricingResult
     public required PricingStrategy Strategy { get; init; }
 
     /// <summary>
-    /// ML model version if ML was used.
+    /// Additional notes about the pricing.
     /// </summary>
-    public string? MLModelVersion { get; init; }
+    public string? Notes { get; init; }
 
     /// <summary>
     /// Material cost component.

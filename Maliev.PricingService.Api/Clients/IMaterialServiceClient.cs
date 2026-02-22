@@ -1,3 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace Maliev.PricingService.Api.Clients;
 
 /// <summary>
@@ -36,19 +42,28 @@ public interface IMaterialServiceClient
 public record MaterialDto
 {
     /// <summary>Material ID.</summary>
+    [JsonPropertyName("id")]
     public Guid Id { get; init; }
 
     /// <summary>Material code.</summary>
+    [JsonPropertyName("code")]
     public string Code { get; init; } = string.Empty;
 
     /// <summary>Material name.</summary>
+    [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
 
     /// <summary>Density in g/cm³.</summary>
+    [JsonPropertyName("densityGramPerCm3")]
     public decimal DensityGramPerCm3 { get; init; }
 
-    /// <summary>Price per kg.</summary>
-    public decimal PricePerKg { get; init; }
+    /// <summary>Cost per kg.</summary>
+    [JsonPropertyName("costPerKg")]
+    public decimal CostPerKg { get; init; }
+
+    /// <summary>Technology-specific process parameters.</summary>
+    [JsonPropertyName("processParameters")]
+    public Dictionary<string, string> ProcessParameters { get; init; } = [];
 }
 
 /// <summary>

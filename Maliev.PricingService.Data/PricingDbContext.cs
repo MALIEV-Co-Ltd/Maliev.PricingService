@@ -83,10 +83,6 @@ public class PricingDbContext : DbContext
             builder.Property(x => x.MarginAmount).HasPrecision(18, 2);
             builder.Property(x => x.TotalUnitPrice).HasPrecision(18, 2);
             builder.Property(x => x.TotalPrice).HasPrecision(18, 2);
-            builder.Property(x => x.ConfigMaterialPricePerCm3).HasPrecision(18, 6);
-            builder.Property(x => x.ConfigSupportPricePerCm3).HasPrecision(18, 6);
-            builder.Property(x => x.ConfigMachineHourlyRate).HasPrecision(18, 2);
-            builder.Property(x => x.ConfigMarginMultiplier).HasPrecision(18, 2);
             builder.Property(x => x.ConfidenceLevel).HasPrecision(18, 2);
         });
 

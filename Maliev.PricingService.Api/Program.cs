@@ -3,6 +3,7 @@ using Maliev.PricingService.Api.Clients;
 using Maliev.PricingService.Api.Consumers;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Api.Services;
+using Maliev.PricingService.Api.Services.Calculators;
 using Maliev.PricingService.Data;
 
 // Initialize bootstrap logging
@@ -35,6 +36,9 @@ try
     // Add in-memory cache for pricing configurations
     builder.Services.AddMemoryCache();
 
+    // Register MachineRates configuration
+    builder.Services.Configure<MachineRates>(builder.Configuration.GetSection("Pricing:MachineRates"));
+
     // Add MassTransit with RabbitMQ
     builder.AddMassTransitWithRabbitMq(x =>
     {
@@ -66,8 +70,13 @@ try
     builder.Services.AddIAMRegistration<PricingIAMRegistrationService>("pricing");
 
     // --- Application Services ---
+    builder.Services.AddScoped<IPricingCalculator, FdmPricingCalculator>();
+    builder.Services.AddScoped<IPricingCalculator, SlaPricingCalculator>();
+    builder.Services.AddScoped<IPricingCalculator, CncPricingCalculator>();
+    builder.Services.AddScoped<IPricingCalculator, ScanningPricingCalculator>();
+    builder.Services.AddScoped<IPricingCalculator, DesignPricingCalculator>();
+    
     builder.Services.AddScoped<IPricingEngine, RuleBasedPricingEngine>();
-    builder.Services.AddScoped<IMLPricingEngine, MLPricingEngine>();
     builder.Services.AddScoped<IPricingOrchestrator, PricingOrchestrator>();
 
     // Authorization

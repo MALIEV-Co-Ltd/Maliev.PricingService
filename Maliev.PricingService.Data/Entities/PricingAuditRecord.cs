@@ -101,15 +101,20 @@ public class PricingAuditRecord
     /// <summary>
     /// Reference to the manufacturing process in MaterialService.
     /// </summary>
-    [Required]
-    public Guid ManufacturingProcessId { get; set; }
+    public Guid? ManufacturingProcessId { get; set; }
 
     /// <summary>
     /// Manufacturing process name at time of calculation (denormalized for audit).
     /// </summary>
-    [Required]
     [StringLength(100)]
-    public string ManufacturingProcessName { get; set; } = string.Empty;
+    public string? ManufacturingProcessName { get; set; }
+
+    /// <summary>
+    /// Manufacturing technology selected.
+    /// </summary>
+    [Required]
+    [StringLength(20)]
+    public string Technology { get; set; } = string.Empty;
 
     /// <summary>
     /// Quantity of parts requested.
@@ -124,28 +129,7 @@ public class PricingAuditRecord
     /// <summary>
     /// Reference to the pricing configuration used.
     /// </summary>
-    [Required]
-    public Guid PricingConfigurationId { get; set; }
-
-    /// <summary>
-    /// Material price per cm3 at time of calculation.
-    /// </summary>
-    public decimal ConfigMaterialPricePerCm3 { get; set; }
-
-    /// <summary>
-    /// Support material price per cm3 at time of calculation.
-    /// </summary>
-    public decimal ConfigSupportPricePerCm3 { get; set; }
-
-    /// <summary>
-    /// Machine hourly rate at time of calculation.
-    /// </summary>
-    public decimal ConfigMachineHourlyRate { get; set; }
-
-    /// <summary>
-    /// Margin multiplier at time of calculation.
-    /// </summary>
-    public decimal ConfigMarginMultiplier { get; set; }
+    public Guid? PricingConfigurationId { get; set; }
 
     // ─────────────────────────────────────────────────────────────
     // Strategy Used
@@ -156,12 +140,6 @@ public class PricingAuditRecord
     /// </summary>
     [Required]
     public PricingStrategy Strategy { get; set; }
-
-    /// <summary>
-    /// ML model version if ML strategy was used.
-    /// </summary>
-    [StringLength(50)]
-    public string? MLModelVersion { get; set; }
 
     // ─────────────────────────────────────────────────────────────
     // Output: Price Breakdown
@@ -305,17 +283,7 @@ public enum PricingStrategy
     RuleBased = 1,
 
     /// <summary>
-    /// Machine learning enhanced calculation.
-    /// </summary>
-    MLEnhanced = 2,
-
-    /// <summary>
     /// Manual pricing by staff.
     /// </summary>
-    Manual = 3,
-
-    /// <summary>
-    /// Combination of rule-based with ML adjustments.
-    /// </summary>
-    Hybrid = 4
+    Manual = 3
 }
