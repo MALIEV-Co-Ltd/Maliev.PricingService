@@ -80,6 +80,12 @@ public record MachineRates
     public decimal CncSetupFee { get; init; }
     /// <summary>CNC material removal rate (mm³/hour).</summary>
     public decimal CncMaterialRemovalRate { get; init; }
+
+    /// <summary>Design hourly rate (THB/hour).</summary>
+    public decimal DesignHourlyRate { get; init; }
+
+    /// <summary>Scanning base price (THB).</summary>
+    public decimal ScanningBasePrice { get; init; }
 }
 
 /// <summary>
@@ -141,6 +147,21 @@ public record PricingRequest
     /// For Scanning technology only.
     /// </summary>
     public string? ScanningTier { get; init; }
+
+    /// <summary>
+    /// Design description provided by the customer.
+    /// </summary>
+    public string? DesignDescription { get; init; }
+
+    /// <summary>
+    /// Reference image URLs for design jobs.
+    /// </summary>
+    public List<string> ReferenceImageUrls { get; init; } = new();
+
+    /// <summary>
+    /// Whether technical drawings are required.
+    /// </summary>
+    public bool RequiresDrawings { get; init; }
 
     /// <summary>
     /// Quantity of parts.

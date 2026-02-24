@@ -64,6 +64,7 @@ try
     // --- External Service Clients ---
     builder.AddServiceClient<IMaterialServiceClient, MaterialServiceClient>("MaterialService");
     builder.AddServiceClient<ICurrencyServiceClient, CurrencyServiceClient>("CurrencyService");
+    builder.AddServiceClient<IChatbotServiceClient, ChatbotServiceClient>("ChatbotService");
 
     // IAM Registration
     builder.AddIAMServiceClient("pricing");
