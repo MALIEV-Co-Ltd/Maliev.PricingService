@@ -1,4 +1,5 @@
 using Maliev.MessagingContracts.Contracts.Pricing;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;
@@ -119,38 +120,47 @@ public class PricingOrchestrator : IPricingOrchestrator
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             // 5. Publish PriceCalculatedEvent (Task T018)
-            await _publishEndpoint.Publish(new PriceCalculatedEvent
-            {
-                PricingAuditId = auditRecord.Id,
-                FileId = request.FileId,
-                CustomerId = request.CustomerId,
-                MaterialId = request.MaterialId,
-                ProcessId = request.ManufacturingProcessId,
-                Quantity = request.Quantity,
-                InputVolumeCm3 = request.Geometry.VolumeCm3,
-                InputSupportVolumeCm3 = request.Geometry.SupportVolumeCm3,
-                InputSurfaceAreaCm2 = request.Geometry.SurfaceAreaCm2,
-                Strategy = result.Strategy.ToString(),
-                MLModelVersion = result.MLModelVersion,
-                ConfidenceLevel = result.ConfidenceLevel,
-                PricingConfigurationId = config.Id,
-                Breakdown = new PriceBreakdownContract
-                {
-                    MaterialCost = result.MaterialCost,
-                    SupportCost = result.SupportMaterialCost,
-                    MachineTimeCost = result.MachineTimeCost,
-                    SetupCost = result.SetupCost,
-                    ComplexitySurcharge = result.ComplexitySurcharge,
-                    SubtotalBeforeMargin = result.SubtotalBeforeMargin,
-                    MarginAmount = result.MarginAmount,
-                    TotalPrice = result.TotalPrice
-                },
-                TotalUnitPrice = result.TotalUnitPrice,
-                TotalPrice = result.TotalPrice,
-                Currency = auditRecord.CurrencyCode,
-                ValidUntil = result.ValidUntil, // I need to make sure result has ValidUntil or use auditRecord
-                CalculatedAt = auditRecord.CalculatedAt
-            }, cancellationToken);
+            await _publishEndpoint.Publish(new PriceCalculatedEvent(
+                MessageId: Guid.NewGuid(),
+                MessageName: nameof(PriceCalculatedEvent),
+                MessageType: MessageType.Event,
+                MessageVersion: "1.0",
+                PublishedBy: "PricingService",
+                ConsumedBy: Array.Empty<string>(),
+                CorrelationId: Guid.NewGuid(),
+                CausationId: null,
+                OccurredAtUtc: DateTimeOffset.UtcNow,
+                IsPublic: false,
+                Payload: new PriceCalculatedEventPayload(
+                    PricingAuditId: auditRecord.Id,
+                    QuotationId: null,
+                    FileId: request.FileId,
+                    CustomerId: request.CustomerId,
+                    MaterialId: request.MaterialId,
+                    ProcessId: request.ManufacturingProcessId,
+                    Quantity: request.Quantity,
+                    InputVolumeCm3: (double)request.Geometry.VolumeCm3,
+                    InputSupportVolumeCm3: (double)request.Geometry.SupportVolumeCm3,
+                    InputSurfaceAreaCm2: (double)request.Geometry.SurfaceAreaCm2,
+                    Strategy: result.Strategy.ToString(),
+                    MlModelVersion: result.MLModelVersion,
+                    ConfidenceLevel: (double)result.ConfidenceLevel,
+                    PricingConfigurationId: config.Id,
+                    Breakdown: new PriceCalculatedEventPayloadBreakdown(
+                        MaterialCost: (double)result.MaterialCost,
+                        SupportCost: (double)result.SupportMaterialCost,
+                        MachineTimeCost: (double)result.MachineTimeCost,
+                        SetupCost: (double)result.SetupCost,
+                        ComplexitySurcharge: (double)result.ComplexitySurcharge,
+                        SubtotalBeforeMargin: (double)result.SubtotalBeforeMargin,
+                        MarginAmount: (double)result.MarginAmount,
+                        TotalPrice: (double)result.TotalPrice),
+                    TotalUnitPrice: (double)result.TotalUnitPrice,
+                    TotalPrice: (double)result.TotalPrice,
+                    Currency: auditRecord.CurrencyCode,
+                    ValidUntil: new DateTimeOffset(result.ValidUntil, TimeSpan.Zero),
+                    CalculatedAt: new DateTimeOffset(auditRecord.CalculatedAt, TimeSpan.Zero))),
+                cancellationToken);
 
             // 6. Update fallback cache (Task T017)
             _cache.Set(cacheKey, result, new MemoryCacheEntryOptions()

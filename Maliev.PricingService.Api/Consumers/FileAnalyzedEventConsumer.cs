@@ -1,7 +1,6 @@
 namespace Maliev.PricingService.Api.Consumers;
 
 using Maliev.MessagingContracts.Contracts.Geometry;
-using Maliev.MessagingContracts.Contracts.Pricing;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Api.Services;
 using MassTransit;
@@ -29,16 +28,14 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
     /// <inheritdoc/>
     public async Task Consume(ConsumeContext<FileAnalyzedEvent> context)
     {
-        var message = context.Message;
+        var payload = context.Message.Payload;
 
-        _logger.LogInformation("Processing FileAnalyzedEvent for FileId: {FileId}", message.FileId);
+        _logger.LogInformation("Processing FileAnalyzedEvent for FileId: {FileId}", payload.FileId);
 
-        // Map event metrics to pricing request
-        // Assuming default material and process if not provided in metadata/context
         var pricingRequest = new PricingRequest
         {
-            FileId = message.FileId,
-            CustomerId = message.CustomerId,
+            FileId = Guid.Parse(payload.FileId),
+            CustomerId = payload.CustomerId,
             MaterialId = Guid.Empty, // Placeholder: should come from context or defaults
             MaterialCode = "DEFAULT",
             ManufacturingProcessId = Guid.Empty, // Placeholder
@@ -46,20 +43,20 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
             Quantity = 1,
             Geometry = new GeometryMetrics
             {
-                VolumeCm3 = message.VolumeCm3,
-                SupportVolumeCm3 = message.SupportVolumeCm3,
-                SurfaceAreaCm2 = message.SurfaceAreaCm2,
-                BoundingBoxX = message.BoundingBoxX,
-                BoundingBoxY = message.BoundingBoxY,
-                BoundingBoxZ = message.BoundingBoxZ,
-                IsManifold = message.IsManifold,
-                TriangleCount = message.TriangleCount
+                VolumeCm3 = (decimal)payload.Metrics.VolumeCm3,
+                SupportVolumeCm3 = (decimal)payload.Metrics.SupportVolumeCm3,
+                SurfaceAreaCm2 = (decimal)payload.Metrics.SurfaceAreaCm2,
+                BoundingBoxX = (decimal)payload.Metrics.BoundingBox.X,
+                BoundingBoxY = (decimal)payload.Metrics.BoundingBox.Y,
+                BoundingBoxZ = (decimal)payload.Metrics.BoundingBox.Z,
+                IsManifold = payload.Metrics.IsManifold,
+                TriangleCount = payload.Metrics.TriangleCount
             },
             CorrelationId = context.CorrelationId?.ToString()
         };
 
         await _orchestrator.CalculatePriceAsync(pricingRequest, context.CancellationToken);
 
-        _logger.LogInformation("Price calculation triggered for FileId: {FileId}", message.FileId);
+        _logger.LogInformation("Price calculation triggered for FileId: {FileId}", payload.FileId);
     }
 }

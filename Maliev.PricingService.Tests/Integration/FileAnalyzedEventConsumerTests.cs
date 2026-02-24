@@ -3,6 +3,7 @@ using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Maliev.MessagingContracts.Contracts.Geometry;
 using Maliev.MessagingContracts.Contracts.Pricing;
+using Maliev.MessagingContracts.Generated;
 using Maliev.PricingService.Api.Consumers;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;
@@ -66,19 +67,36 @@ public class FileAnalyzedEventConsumerTests : IClassFixture<PricingServiceTestFa
         var harness = provider.GetRequiredService<ITestHarness>();
         await harness.Start();
 
-        var message = new FileAnalyzedEvent
-        {
-            FileId = fileId,
-            CustomerId = customerId,
-            VolumeCm3 = 10.0m,
-            SupportVolumeCm3 = 2.0m,
-            SurfaceAreaCm2 = 50.0m,
-            BoundingBoxX = 10.0m,
-            BoundingBoxY = 10.0m,
-            BoundingBoxZ = 10.0m,
-            IsManifold = true,
-            TriangleCount = 1000
-        };
+        var message = new FileAnalyzedEvent(
+            MessageId: Guid.NewGuid(),
+            MessageName: nameof(FileAnalyzedEvent),
+            MessageType: MessageType.Event,
+            MessageVersion: "1.0",
+            PublishedBy: "GeometryService",
+            ConsumedBy: new[] { "PricingService" },
+            CorrelationId: Guid.NewGuid(),
+            CausationId: null,
+            OccurredAtUtc: DateTimeOffset.UtcNow,
+            IsPublic: false,
+            Payload: new FileAnalyzedEventPayload(
+                FileId: fileId.ToString(),
+                CustomerId: customerId,
+                Metrics: new FileAnalyzedEventPayloadMetrics(
+                    VolumeCm3: 10.0,
+                    SupportVolumeCm3: 2.0,
+                    SurfaceAreaCm2: 50.0,
+                    BoundingBox: new FileAnalyzedEventPayloadMetricsBoundingBox(X: 10.0, Y: 10.0, Z: 10.0),
+                    IsManifold: true,
+                    TriangleCount: 1000,
+                    EulerNumber: 2),
+                GlbStoragePath: null,
+                ThumbnailStoragePath: null,
+                ProcessedAt: DateTimeOffset.UtcNow,
+                DfmReport: new FileAnalyzedEventPayloadDfmReport(
+                    ThinWallCount: 0,
+                    ThinWallRegions: Array.Empty<System.Collections.Generic.IReadOnlyList<double>>(),
+                    OverhangFaceCount: 0,
+                    OverhangAreaCm2: 0.0)));
 
         // Act
         await harness.Bus.Publish(message);

@@ -1,4 +1,3 @@
-using Maliev.MessagingContracts.Contracts;
 using Maliev.MessagingContracts.Contracts.Orders;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;
@@ -30,26 +29,26 @@ public class OrderCompletedEventConsumer : IConsumer<OrderCompletedEvent>
     /// <inheritdoc/>
     public async Task Consume(ConsumeContext<OrderCompletedEvent> context)
     {
-        var message = context.Message;
+        var payload = context.Message.Payload;
         var cancellationToken = context.CancellationToken;
 
         _logger.LogInformation(
             "Received OrderCompletedEvent for order {OrderId}, quotation {QuotationId}",
-            message.OrderId,
-            message.QuotationId);
+            payload.OrderId,
+            payload.QuotationId);
 
         try
         {
             // Find the pricing audit record linked to this quotation
             var auditRecord = await _dbContext.PricingAuditRecords
                 .Include(a => a.TrainingData)
-                .FirstOrDefaultAsync(a => a.QuotationId == message.QuotationId, cancellationToken);
+                .FirstOrDefaultAsync(a => a.QuotationId == payload.QuotationId, cancellationToken);
 
             if (auditRecord == null)
             {
                 _logger.LogWarning(
                     "No pricing audit record found for quotation {QuotationId}",
-                    message.QuotationId);
+                    payload.QuotationId);
                 return;
             }
 
@@ -60,22 +59,26 @@ public class OrderCompletedEventConsumer : IConsumer<OrderCompletedEvent>
                 PricingAuditRecordId = auditRecord.Id
             };
 
-            trainingData.OrderId = message.OrderId;
+            trainingData.OrderId = payload.OrderId;
             trainingData.CustomerAccepted = true;
-            trainingData.AcceptedAt = message.OrderCreatedAt;
+            trainingData.AcceptedAt = payload.OrderCreatedAt.UtcDateTime;
             trainingData.JobCompleted = true;
-            trainingData.CompletedAt = message.CompletedAt;
-            trainingData.JobSucceeded = message.JobSucceeded;
-            trainingData.ActualMaterialUsedCm3 = message.ActualMaterialUsedCm3;
-            trainingData.ActualPrintTimeHours = message.ActualPrintTimeHours;
-            trainingData.ActualLaborHours = message.ActualLaborHours;
-            trainingData.ActualTotalCost = message.ActualTotalCost;
+            trainingData.CompletedAt = payload.CompletedAt.UtcDateTime;
+            trainingData.JobSucceeded = payload.JobSucceeded;
+            trainingData.ActualMaterialUsedCm3 = payload.ActualMaterialUsedCm3.HasValue
+                ? (decimal)payload.ActualMaterialUsedCm3.Value : null;
+            trainingData.ActualPrintTimeHours = payload.ActualPrintTimeHours.HasValue
+                ? (decimal)payload.ActualPrintTimeHours.Value : null;
+            trainingData.ActualLaborHours = payload.ActualLaborHours.HasValue
+                ? (decimal)payload.ActualLaborHours.Value : null;
+            trainingData.ActualTotalCost = payload.ActualTotalCost.HasValue
+                ? (decimal)payload.ActualTotalCost.Value : null;
 
             // Calculate actual profit margin
-            if (message.ActualTotalCost.HasValue && auditRecord.TotalPrice > 0)
+            if (payload.ActualTotalCost.HasValue && auditRecord.TotalPrice > 0)
             {
                 trainingData.ActualProfitMargin =
-                    (auditRecord.TotalPrice - message.ActualTotalCost.Value) / auditRecord.TotalPrice;
+                    (auditRecord.TotalPrice - (decimal)payload.ActualTotalCost.Value) / auditRecord.TotalPrice;
             }
 
             if (auditRecord.TrainingData == null)
@@ -94,7 +97,7 @@ public class OrderCompletedEventConsumer : IConsumer<OrderCompletedEvent>
         {
             _logger.LogError(ex,
                 "Error processing OrderCompletedEvent for order {OrderId}",
-                message.OrderId);
+                payload.OrderId);
             throw;
         }
     }
