@@ -3,7 +3,7 @@ using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Maliev.MessagingContracts.Contracts.Geometry;
 using Maliev.MessagingContracts.Contracts.Pricing;
-using Maliev.MessagingContracts.Generated;
+using Maliev.MessagingContracts;
 using Maliev.PricingService.Api.Consumers;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;

@@ -1,5 +1,5 @@
 using Maliev.MessagingContracts.Contracts.Pricing;
-using Maliev.MessagingContracts.Generated;
+using Maliev.MessagingContracts;
 using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Data;
 using Maliev.PricingService.Data.Entities;
