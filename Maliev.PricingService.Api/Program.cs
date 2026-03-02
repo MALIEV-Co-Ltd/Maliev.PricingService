@@ -1,9 +1,12 @@
 using Maliev.Aspire.ServiceDefaults;
-using Maliev.PricingService.Api.Clients;
 using Maliev.PricingService.Api.Consumers;
-using Maliev.PricingService.Api.Interfaces;
 using Maliev.PricingService.Api.Services;
-using Maliev.PricingService.Data;
+using Maliev.PricingService.Application;
+using Maliev.PricingService.Application.Interfaces;
+using Maliev.PricingService.Infrastructure;
+using Maliev.PricingService.Infrastructure.Persistence;
+using Maliev.PricingService.Infrastructure.Clients;
+using Microsoft.EntityFrameworkCore;
 
 // Initialize bootstrap logging
 using var loggerFactory = LoggerFactory.Create(logBuilder => logBuilder.AddConsole());
@@ -15,24 +18,16 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
-    // --- Secrets & Configuration ---
-    builder.AddGoogleSecretManagerVolume(); // Load secrets from /mnt/secrets if available
-
     // --- Infrastructure & Observability ---
-    builder.AddServiceDefaults(); // OpenTelemetry, health checks, resilience
-    builder.AddStandardMiddleware(options =>
-    {
-        options.EnableRequestLogging = true;
-    });
-    builder.AddServiceMeters("pricing-meter"); // Register service meters for OpenTelemetry business metrics
+    builder.AddServiceDefaults();
+    builder.AddStandardMiddleware(options => { options.EnableRequestLogging = true; });
+    builder.AddServiceMeters("pricing-meter");
 
     // Add PostgreSQL DbContext
     builder.AddPostgresDbContext<PricingDbContext>(connectionName: "PricingDbContext");
 
     // Add Redis Distributed Cache
-    builder.AddStandardCache("pricing:"); // Redis + in-memory fallback, memory-optimized
-
-    // Add in-memory cache for pricing configurations
+    builder.AddStandardCache("pricing:");
     builder.Services.AddMemoryCache();
 
     // Add MassTransit with RabbitMQ
@@ -43,66 +38,54 @@ try
     });
 
     // --- API Configuration ---
-    builder.AddStandardCors(); // CORS with fail-fast validation
-    builder.AddDefaultApiVersioning(); // API versioning with URL segment reader
-
-    // JWT Authentication
+    builder.AddStandardCors();
+    builder.AddDefaultApiVersioning();
+    builder.Services.AddResponseCaching();
     builder.AddJwtAuthentication();
+    builder.Services.AddPermissionAuthorization();
 
-    // Add OpenAPI (must be in Program.cs for XML comments to work via source generator)
+    // --- Layer Registration ---
+    builder.Services.AddApplication();
+    builder.Services.AddInfrastructure(builder.Configuration);
+
+    // External Client Registrations
+    builder.Services.AddHttpClient<IMaterialServiceClient, MaterialServiceClient>(client =>
+    {
+        client.BaseAddress = new Uri(builder.Configuration["ExternalServices:MaterialService"] ?? "http://material-service");
+    }).AddStandardResilienceHandler();
+
+    builder.Services.AddHttpClient<ICurrencyServiceClient, CurrencyServiceClient>(client =>
+    {
+        client.BaseAddress = new Uri(builder.Configuration["ExternalServices:CurrencyService"] ?? "http://currency-service");
+    }).AddStandardResilienceHandler();
+
+    // Add OpenAPI
     if (!builder.Environment.IsProduction())
     {
         builder.AddStandardOpenApi(
             title: "MALIEV Pricing Service API",
-            description: "Pricing calculation and audit service. Provides instant price calculations using rule-based and ML algorithms, maintains complete audit trail for all pricing decisions, and integrates with MaterialService and CurrencyService for accurate pricing.");
+            description: "Pricing calculation and audit service.");
     }
-
-    // --- External Service Clients ---
-    builder.AddServiceClient<IMaterialServiceClient, MaterialServiceClient>("MaterialService");
-    builder.AddServiceClient<ICurrencyServiceClient, CurrencyServiceClient>("CurrencyService");
 
     // IAM Registration
     builder.AddIAMServiceClient("pricing");
     builder.Services.AddIAMRegistration<PricingIAMRegistrationService>("pricing");
 
-    // --- Application Services ---
-    builder.Services.AddScoped<IPricingEngine, RuleBasedPricingEngine>();
-    builder.Services.AddScoped<IMLPricingEngine, MLPricingEngine>();
-    builder.Services.AddScoped<IPricingOrchestrator, PricingOrchestrator>();
-
-    // Authorization
-    builder.Services.AddPermissionAuthorization();
-
     builder.Services.AddControllers();
 
     var app = builder.Build();
-
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-    // Run database migrations on startup
     await app.MigrateDatabaseAsync<PricingDbContext>();
 
-    // Configure middleware pipeline
     app.UseStandardMiddleware();
-
-    if (!app.Environment.IsDevelopment())
-    {
-        app.UseHttpsRedirection();
-    }
-
+    if (!app.Environment.IsDevelopment()) { app.UseHttpsRedirection(); }
     app.UseCors();
-
-    // Authentication & Authorization
     app.UseAuthentication();
     app.UseAuthorization();
-
-    // Map endpoints after middleware
+    app.UseResponseCaching();
     app.MapControllers();
-
-    // Map Aspire default endpoints (/health, /alive, /metrics)
     app.MapDefaultEndpoints(servicePrefix: "pricing");
-
-    // Map OpenAPI and Scalar documentation (dev/staging only)
     app.MapApiDocumentation(servicePrefix: "pricing");
 
     Log.ServiceStarted(logger, "Pricing Service");
@@ -111,9 +94,6 @@ try
 catch (Exception ex)
 {
     Log.HostTerminated(bootstrapLogger, ex, "Pricing Service");
-    // Force flush to ensure Aspire captures the error before process exits
-    Console.Out.Flush();
-    Console.Error.Flush();
     throw;
 }
 finally
@@ -122,7 +102,7 @@ finally
 }
 
 /// <summary>
-/// Main entry point for the Maliev Pricing Service API.
+/// The main program class for the Pricing Service.
 /// </summary>
 public partial class Program
 {
@@ -136,8 +116,5 @@ public partial class Program
 
         [LoggerMessage(Level = LogLevel.Information, Message = "{ServiceName} started successfully")]
         public static partial void ServiceStarted(ILogger logger, string serviceName);
-
-        [LoggerMessage(Level = LogLevel.Error, Message = "Database migration failed - application may not function correctly")]
-        public static partial void MigrationFailed(ILogger logger, Exception exception);
     }
 }
