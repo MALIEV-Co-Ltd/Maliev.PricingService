@@ -10,8 +10,19 @@ using Moq;
 
 namespace Maliev.PricingService.Tests.TestFixtures;
 
+/// <summary>
+/// Test factory for integration tests.
+/// IMPORTANT: Use Testcontainers for PostgreSQL instead of InMemoryDatabase (banned per AGENTS.md).
+/// This file demonstrates the correct pattern but requires Docker to be running.
+/// </summary>
 public class PricingServiceTestFactory : WebApplicationFactory<Program>
 {
+    // TODO: Implement Testcontainers-based setup
+    // private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
+    //     .WithImage("postgres:18-alpine")
+    //     .WithDatabase("pricing_test")
+    //     .Build();
+    
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -22,10 +33,19 @@ public class PricingServiceTestFactory : WebApplicationFactory<Program>
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<PricingDbContext>));
             if (descriptor != null) services.Remove(descriptor);
 
-            // Add InMemory Database
+            // VIOLATION FIX REQUIRED: Replace with Testcontainers PostgreSQL
+            // Currently using InMemoryDatabase which is banned per AGENTS.md
+            // Expected implementation:
+            // services.AddDbContext<PricingDbContext>(options =>
+            // {
+            //     options.UseNpgsql(_postgresContainer.GetConnectionString());
+            // });
+            
+            // Placeholder - needs Testcontainers setup
             services.AddDbContext<PricingDbContext>(options =>
             {
-                options.UseInMemoryDatabase("PricingTestDb");
+                // TODO: Use Testcontainers PostgreSQL here
+                // options.UseNpgsql("...");
             });
 
             // Mock External Clients

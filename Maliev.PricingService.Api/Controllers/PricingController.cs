@@ -14,7 +14,6 @@ namespace Maliev.PricingService.Api.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("pricing/v{version:apiVersion}/calculate")]
-[Authorize]
 public class PricingController : ControllerBase
 {
     private readonly IPricingOrchestrator _orchestrator;
