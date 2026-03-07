@@ -108,3 +108,23 @@ _logger.LogInformation($"Processing pricing for FileId: {request.FileId}");
 2.  **Testing**: If modifying logic, run relevant existing tests. If adding features, add corresponding tests.
 3.  **Context**: Read `Directory.Build.props` and `.csproj` files to understand dependencies and build configurations before adding new packages.
 4.  **No Assumptions**: Do not assume global tools are installed. Use local `dotnet` CLI commands.
+
+
+## Database & EF Core — Mandatory Rules
+
+### EF Core Design Package
+- ❌ `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
+- ✅ It belongs ONLY in the Infrastructure (or Data) project where migrations live
+- Migration commands must target Infrastructure, not Api:
+  ```
+  dotnet ef migrations add <Name> --project Maliev.<Domain>Service.Infrastructure --startup-project ../Maliev.<Domain>Service.Api
+  ```
+
+### PostgreSQL xmin Concurrency — Mandatory Pattern
+Use shadow property ONLY. Never add a Xmin/xmin property to domain entities.
+```csharp
+entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
+```
+- ❌ Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
+- ❌ Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
+- ❌ Never use `.Ignore(e => e.Xmin)` — remove the entity property instead
