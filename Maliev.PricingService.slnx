@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="Maliev.PricingService.Api/Maliev.PricingService.Api.csproj" />
-  <Project Path="Maliev.PricingService.Data/Maliev.PricingService.Data.csproj" />
+  <Project Path="Maliev.PricingService.Application/Maliev.PricingService.Application.csproj" />
+  <Project Path="Maliev.PricingService.Domain/Maliev.PricingService.Domain.csproj" />
+  <Project Path="Maliev.PricingService.Infrastructure/Maliev.PricingService.Infrastructure.csproj" />
   <Project Path="Maliev.PricingService.Tests/Maliev.PricingService.Tests.csproj" />
 </Solution>

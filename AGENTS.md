@@ -31,13 +31,18 @@ To run a single test or a subset of tests, use the `--filter` option.
 
 ## 2. Project Structure & Architecture
 
-- **`Maliev.PricingService.Api`**: Main entry point. Contains Controllers, Consumers, and Orchestrators.
-- **`Maliev.PricingService.Data`**: EF Core contexts, Entities, and Migrations (PostgreSQL).
-- **`Maliev.PricingService.Tests`**: Unit and Integration tests. Uses `xUnit`, `Moq`, and `Testcontainers`.
+**Architecture**: Clean Architecture (Api, Application, Domain, Infrastructure, Tests)
+
+- **`Maliev.PricingService.Api`**: Controllers, Consumers, Middleware
+- **`Maliev.PricingService.Application`**: Use cases, handlers, DTOs, Pricing strategies
+- **`Maliev.PricingService.Domain`**: Entities, interfaces, pricing rules
+- **`Maliev.PricingService.Infrastructure`**: EF Core, repositories, external services
+- **`Maliev.PricingService.Tests`**: Unit and Integration tests. Uses `xUnit` and `Testcontainers`.
 - **`Maliev.MessagingContracts`**: Shared message contracts for MassTransit.
 
 ### Key Patterns
 - **Orchestration**: Controllers delegate to `IPricingOrchestrator`, which manages workflow between engines/services.
+- **Pricing Strategies**: FDM, SLA/DLP, CNC calculators as strategy implementations
 - **Messaging**: Uses MassTransit with RabbitMQ. Consumers handle events (e.g., `FileAnalyzedEvent`).
 - **Data Access**: EF Core with PostgreSQL.
 
@@ -103,3 +108,23 @@ _logger.LogInformation($"Processing pricing for FileId: {request.FileId}");
 2.  **Testing**: If modifying logic, run relevant existing tests. If adding features, add corresponding tests.
 3.  **Context**: Read `Directory.Build.props` and `.csproj` files to understand dependencies and build configurations before adding new packages.
 4.  **No Assumptions**: Do not assume global tools are installed. Use local `dotnet` CLI commands.
+
+
+## Database & EF Core — Mandatory Rules
+
+### EF Core Design Package
+- ❌ `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
+- ✅ It belongs ONLY in the Infrastructure (or Data) project where migrations live
+- Migration commands must target Infrastructure as both project and startup-project (since EF Core Design package is in Infrastructure):
+  ```
+  dotnet ef migrations add <Name> --project Maliev.<Domain>Service.Infrastructure --startup-project Maliev.<Domain>Service.Infrastructure
+  ```
+
+### PostgreSQL xmin Concurrency — Mandatory Pattern
+Use shadow property ONLY. Never add a Xmin/xmin property to domain entities.
+```csharp
+entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
+```
+- ❌ Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
+- ❌ Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
+- ❌ Never use `.Ignore(e => e.Xmin)` — remove the entity property instead

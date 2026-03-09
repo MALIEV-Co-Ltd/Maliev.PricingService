@@ -1,0 +1,62 @@
+using Maliev.PricingService.Application.Interfaces;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using System.Net.Http.Json;
+
+namespace Maliev.PricingService.Infrastructure.Clients;
+
+public class MaterialServiceClient : IMaterialServiceClient
+{
+    private readonly HttpClient _httpClient;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<MaterialServiceClient> _logger;
+
+    public MaterialServiceClient(
+        HttpClient httpClient,
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<MaterialServiceClient> logger)
+    {
+        _httpClient = httpClient;
+        _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
+    }
+
+    public async Task<MaterialDto?> GetMaterialAsync(Guid materialId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/v1/materials/{materialId}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching material {MaterialId}", materialId);
+            return null;
+        }
+    }
+
+    public async Task<ManufacturingProcessDto?> GetProcessAsync(Guid processId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<ManufacturingProcessDto>($"/v1/processes/{processId}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching process {ProcessId}", processId);
+            return null;
+        }
+    }
+
+    public async Task<MaterialDto?> GetDefaultMaterialAsync(string processType, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/v1/materials/default/{processType}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching default material for {ProcessType}", processType);
+            return null;
+        }
+    }
+}

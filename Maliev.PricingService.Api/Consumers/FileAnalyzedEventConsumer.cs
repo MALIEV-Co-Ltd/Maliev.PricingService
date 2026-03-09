@@ -1,10 +1,10 @@
-namespace Maliev.PricingService.Api.Consumers;
-
+using Maliev.PricingService.Application.DTOs;
 using Maliev.MessagingContracts.Contracts.Geometry;
-using Maliev.PricingService.Api.Interfaces;
-using Maliev.PricingService.Api.Services;
+using Maliev.PricingService.Application.Interfaces;
 using MassTransit;
 using Microsoft.Extensions.Logging;
+
+namespace Maliev.PricingService.Api.Consumers;
 
 /// <summary>
 /// Consumes <see cref="FileAnalyzedEvent"/> from GeometryService and calculates pricing.
@@ -25,21 +25,23 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
         _logger = logger;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Consumes the specified context.
+    /// </summary>
+    /// <param name="context">The context.</param>
     public async Task Consume(ConsumeContext<FileAnalyzedEvent> context)
     {
         var payload = context.Message.Payload;
-
         _logger.LogInformation("Processing FileAnalyzedEvent for FileId: {FileId}", payload.FileId);
 
         var pricingRequest = new PricingRequest
         {
             FileId = Guid.Parse(payload.FileId),
             CustomerId = payload.CustomerId,
-            MaterialId = Guid.Empty, // Placeholder: should come from context or defaults
-            MaterialCode = "DEFAULT",
-            ManufacturingProcessId = Guid.Empty, // Placeholder
-            ManufacturingProcessName = "DEFAULT",
+            MaterialId = payload.MaterialId,
+            MaterialCode = payload.MaterialCode,
+            ManufacturingProcessId = payload.ManufacturingProcessId,
+            ManufacturingProcessName = payload.ManufacturingProcessName,
             Quantity = 1,
             Geometry = new GeometryMetrics
             {
@@ -52,11 +54,9 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
                 IsManifold = payload.Metrics.IsManifold,
                 TriangleCount = payload.Metrics.TriangleCount
             },
-            CorrelationId = context.CorrelationId?.ToString()
+            CorrelationId = context.CorrelationId
         };
 
         await _orchestrator.CalculatePriceAsync(pricingRequest, context.CancellationToken);
-
-        _logger.LogInformation("Price calculation triggered for FileId: {FileId}", payload.FileId);
     }
 }

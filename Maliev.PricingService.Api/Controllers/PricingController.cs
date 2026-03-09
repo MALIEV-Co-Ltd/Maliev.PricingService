@@ -1,18 +1,19 @@
 using Asp.Versioning;
 using Maliev.Aspire.ServiceDefaults.Authorization;
-using Maliev.PricingService.Api.Interfaces;
-using Maliev.PricingService.Api.Services;
+using Maliev.PricingService.Application.DTOs;
+using Maliev.PricingService.Application.Interfaces;
+using Maliev.PricingService.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Maliev.PricingService.Api.Controllers;
 
 /// <summary>
-/// Controller for pricing calculations.
+/// Controller for on-demand pricing calculations.
 /// </summary>
 [ApiController]
 [ApiVersion("1.0")]
-[Route("pricing/v{version:apiVersion}/pricing")]
+[Route("pricing/v{version:apiVersion}/calculate")]
 public class PricingController : ControllerBase
 {
     private readonly IPricingOrchestrator _orchestrator;
@@ -30,38 +31,18 @@ public class PricingController : ControllerBase
     }
 
     /// <summary>
-    /// Calculates the price for a given set of inputs.
+    /// Calculates pricing for a 3D model based on material and process.
     /// </summary>
     /// <param name="request">The pricing request.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The pricing result.</returns>
-    [HttpPost("calculate")]
-    [ProducesResponseType(typeof(PricingResult), 200)]
-    [ProducesResponseType(400)]
+    [HttpPost]
     [RequirePermission(PricingPermissions.CalculationsCreate)]
+    [ProducesResponseType(typeof(PricingResult), StatusCodes.Status200OK)]
     public async Task<ActionResult<PricingResult>> CalculatePrice([FromBody] PricingRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received ad-hoc pricing request for FileId: {FileId}", request.FileId);
-
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
-        try
-        {
-            var result = await _orchestrator.CalculatePriceAsync(request, cancellationToken);
-            return Ok(result);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Invalid pricing request: {Message}", ex.Message);
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during pricing calculation");
-            return StatusCode(500, new { message = "An internal error occurred during calculation." });
-        }
+        var result = await _orchestrator.CalculatePriceAsync(request, cancellationToken);
+        return Ok(result);
     }
 }

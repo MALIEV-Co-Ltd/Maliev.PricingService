@@ -1,104 +1,47 @@
+using Maliev.PricingService.Application.Interfaces;
+using Maliev.PricingService.Domain.Entities;
 using Maliev.MessagingContracts.Contracts.Orders;
-using Maliev.PricingService.Data;
-using Maliev.PricingService.Data.Entities;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Maliev.PricingService.Api.Consumers;
 
 /// <summary>
-/// Consumes OrderCompletedEvent to update training data with actual job outcomes.
-/// This enables ML model improvement based on real production data.
+/// Consumes <see cref="OrderCompletedEvent"/> to finalise pricing audit logs and transition snapshots.
 /// </summary>
 public class OrderCompletedEventConsumer : IConsumer<OrderCompletedEvent>
 {
-    private readonly PricingDbContext _dbContext;
+    private readonly IPricingDbContext _context;
     private readonly ILogger<OrderCompletedEventConsumer> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrderCompletedEventConsumer"/> class.
     /// </summary>
-    public OrderCompletedEventConsumer(
-        PricingDbContext dbContext,
-        ILogger<OrderCompletedEventConsumer> logger)
+    /// <param name="context">The pricing database context.</param>
+    /// <param name="logger">The logger.</param>
+    public OrderCompletedEventConsumer(IPricingDbContext context, ILogger<OrderCompletedEventConsumer> logger)
     {
-        _dbContext = dbContext;
+        _context = context;
         _logger = logger;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Consumes the specified context.
+    /// </summary>
+    /// <param name="context">The context.</param>
     public async Task Consume(ConsumeContext<OrderCompletedEvent> context)
     {
         var payload = context.Message.Payload;
-        var cancellationToken = context.CancellationToken;
+        _logger.LogInformation("Received OrderCompletedEvent for order {OrderId}", payload.OrderId);
 
-        _logger.LogInformation(
-            "Received OrderCompletedEvent for order {OrderId}, quotation {QuotationId}",
-            payload.OrderId,
-            payload.QuotationId);
+        var auditRecord = await _context.AuditRecords
+            .FirstOrDefaultAsync(a => a.CorrelationId == context.CorrelationId.ToString());
 
-        try
+        if (auditRecord != null)
         {
-            // Find the pricing audit record linked to this quotation
-            var auditRecord = await _dbContext.PricingAuditRecords
-                .Include(a => a.TrainingData)
-                .FirstOrDefaultAsync(a => a.QuotationId == payload.QuotationId, cancellationToken);
-
-            if (auditRecord == null)
-            {
-                _logger.LogWarning(
-                    "No pricing audit record found for quotation {QuotationId}",
-                    payload.QuotationId);
-                return;
-            }
-
-            // Create or update training data
-            var trainingData = auditRecord.TrainingData ?? new PricingTrainingData
-            {
-                Id = Guid.NewGuid(),
-                PricingAuditRecordId = auditRecord.Id
-            };
-
-            trainingData.OrderId = payload.OrderId;
-            trainingData.CustomerAccepted = true;
-            trainingData.AcceptedAt = payload.OrderCreatedAt.UtcDateTime;
-            trainingData.JobCompleted = true;
-            trainingData.CompletedAt = payload.CompletedAt.UtcDateTime;
-            trainingData.JobSucceeded = payload.JobSucceeded;
-            trainingData.ActualMaterialUsedCm3 = payload.ActualMaterialUsedCm3.HasValue
-                ? (decimal)payload.ActualMaterialUsedCm3.Value : null;
-            trainingData.ActualPrintTimeHours = payload.ActualPrintTimeHours.HasValue
-                ? (decimal)payload.ActualPrintTimeHours.Value : null;
-            trainingData.ActualLaborHours = payload.ActualLaborHours.HasValue
-                ? (decimal)payload.ActualLaborHours.Value : null;
-            trainingData.ActualTotalCost = payload.ActualTotalCost.HasValue
-                ? (decimal)payload.ActualTotalCost.Value : null;
-
-            // Calculate actual profit margin
-            if (payload.ActualTotalCost.HasValue && auditRecord.TotalPrice > 0)
-            {
-                trainingData.ActualProfitMargin =
-                    (auditRecord.TotalPrice - (decimal)payload.ActualTotalCost.Value) / auditRecord.TotalPrice;
-            }
-
-            if (auditRecord.TrainingData == null)
-            {
-                _dbContext.PricingTrainingData.Add(trainingData);
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation(
-                "Updated training data for audit record {AuditRecordId}, actual margin: {Margin:P2}",
-                auditRecord.Id,
-                trainingData.ActualProfitMargin);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Error processing OrderCompletedEvent for order {OrderId}",
-                payload.OrderId);
-            throw;
+            auditRecord.CalculatedBySystem = "PricingService-Finalized";
+            await _context.SaveChangesAsync(context.CancellationToken);
         }
     }
 }
