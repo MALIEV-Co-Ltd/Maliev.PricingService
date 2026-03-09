@@ -38,10 +38,10 @@ public class FileAnalyzedEventConsumer : IConsumer<FileAnalyzedEvent>
         {
             FileId = Guid.Parse(payload.FileId),
             CustomerId = payload.CustomerId,
-            MaterialId = Guid.Empty,
-            MaterialCode = "DEFAULT",
-            ManufacturingProcessId = Guid.Empty,
-            ManufacturingProcessName = "DEFAULT",
+            MaterialId = payload.MaterialId,
+            MaterialCode = payload.MaterialCode,
+            ManufacturingProcessId = payload.ManufacturingProcessId,
+            ManufacturingProcessName = payload.ManufacturingProcessName,
             Quantity = 1,
             Geometry = new GeometryMetrics
             {

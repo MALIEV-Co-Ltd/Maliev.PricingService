@@ -6,7 +6,9 @@ WORKDIR /src
 # Copy nuget.config and project files
 COPY nuget.config ./
 COPY ["Maliev.PricingService.Api/Maliev.PricingService.Api.csproj", "Maliev.PricingService.Api/"]
-COPY ["Maliev.PricingService.Data/Maliev.PricingService.Data.csproj", "Maliev.PricingService.Data/"]
+COPY ["Maliev.PricingService.Application/Maliev.PricingService.Application.csproj", "Maliev.PricingService.Application/"]
+COPY ["Maliev.PricingService.Domain/Maliev.PricingService.Domain.csproj", "Maliev.PricingService.Domain/"]
+COPY ["Maliev.PricingService.Infrastructure/Maliev.PricingService.Infrastructure.csproj", "Maliev.PricingService.Infrastructure/"]
 
 # Restore dependencies with private NuGet feed credentials
 RUN --mount=type=secret,id=nuget_username \

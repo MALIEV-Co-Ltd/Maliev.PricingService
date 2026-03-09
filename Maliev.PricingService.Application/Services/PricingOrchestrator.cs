@@ -1,6 +1,7 @@
 using Maliev.PricingService.Application.DTOs;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace Maliev.PricingService.Application.Services;
@@ -26,36 +27,71 @@ public class PricingOrchestrator : IPricingOrchestrator
 
     public async Task<PricingResult> CalculatePriceAsync(PricingRequest request, CancellationToken cancellationToken = default)
     {
-        // For migration purpose, use a placeholder configuration
-        var config = new PricingConfiguration 
-        { 
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.Empty,
-            ManufacturingProcessId = Guid.Empty,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-        
+        var config = await _context.Configurations
+            .Where(c => c.MaterialId == request.MaterialId
+                     && c.ManufacturingProcessId == request.ManufacturingProcessId
+                     && c.IsActive
+                     && c.EffectiveFrom <= DateTime.UtcNow
+                     && (c.EffectiveTo == null || c.EffectiveTo >= DateTime.UtcNow))
+            .OrderByDescending(c => c.EffectiveFrom)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (config == null)
+        {
+            _logger.LogWarning(
+                "No active pricing configuration found for MaterialId: {MaterialId}, ManufacturingProcessId: {ManufacturingProcessId}",
+                request.MaterialId,
+                request.ManufacturingProcessId);
+
+            return new PricingResult
+            {
+                UnitPrice = 0,
+                TotalAmount = 0,
+                ConfidenceScore = 0,
+                EngineName = "None"
+            };
+        }
+
         var ruleResult = await _ruleEngine.CalculateAsync(request, config, cancellationToken);
         var mlResult = await _mlEngine.CalculateAsync(request, config, cancellationToken);
 
-        // Logic to combine results
         var finalResult = mlResult.ConfidenceScore > 0.8m ? mlResult : ruleResult;
 
+        var now = DateTime.UtcNow;
         var auditRecord = new PricingAuditRecord
         {
             Id = Guid.NewGuid(),
-            FileId = Guid.Empty, // Placeholder
-            CustomerId = Guid.Empty, // Placeholder
+            FileId = request.FileId,
+            CustomerId = request.CustomerId,
+            MaterialId = request.MaterialId,
+            ManufacturingProcessId = request.ManufacturingProcessId,
             MaterialCode = request.MaterialCode,
+            ManufacturingProcessName = request.ManufacturingProcessName,
             Quantity = (int)request.Quantity,
+            InputVolumeCm3 = request.Geometry.VolumeCm3,
+            InputSupportVolumeCm3 = request.Geometry.SupportVolumeCm3,
+            InputSurfaceAreaCm2 = request.Geometry.SurfaceAreaCm2,
+            InputBoundingBoxX = request.Geometry.BoundingBoxX,
+            InputBoundingBoxY = request.Geometry.BoundingBoxY,
+            InputBoundingBoxZ = request.Geometry.BoundingBoxZ,
+            InputIsManifold = request.Geometry.IsManifold,
+            InputTriangleCount = request.Geometry.TriangleCount,
+            PricingConfigurationId = config.Id,
+            ConfigMaterialPricePerCm3 = config.MaterialPricePerCm3,
+            ConfigSupportPricePerCm3 = config.SupportMaterialPricePerCm3,
+            ConfigMachineHourlyRate = config.MachineHourlyRate,
+            ConfigMarginMultiplier = config.MarginMultiplier,
             Strategy = finalResult.EngineName.Contains("ML") ? PricingStrategy.MLEnhanced : PricingStrategy.RuleBased,
             MLModelVersion = finalResult.EngineName,
             TotalUnitPrice = finalResult.UnitPrice,
             TotalPrice = finalResult.TotalAmount,
             ConfidenceLevel = finalResult.ConfidenceScore,
-            CalculatedAt = DateTime.UtcNow,
-            CalculationDuration = TimeSpan.FromMilliseconds(100) // Placeholder
+            CurrencyCode = request.Currency,
+            ValidFrom = now,
+            ValidUntil = now.AddDays(30),
+            CalculatedAt = now,
+            CalculationDuration = TimeSpan.FromMilliseconds(100),
+            CorrelationId = request.CorrelationId?.ToString()
         };
 
         _context.AuditRecords.Add(auditRecord);
@@ -63,12 +99,12 @@ public class PricingOrchestrator : IPricingOrchestrator
         _context.Snapshots.Add(new PricingSnapshot
         {
             Id = Guid.NewGuid(),
-            OrderId = "TEMP", // Placeholder
-            EmployeeId = "SYSTEM", // Placeholder
+            OrderId = "TEMP",
+            EmployeeId = "SYSTEM",
             MaterialCode = request.MaterialCode,
             CalculatedPrice = finalResult.TotalAmount,
             PricingAuditRecordId = auditRecord.Id,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         });
 
         await _context.SaveChangesAsync(cancellationToken);

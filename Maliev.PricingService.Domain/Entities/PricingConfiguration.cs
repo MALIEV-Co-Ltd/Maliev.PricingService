@@ -118,9 +118,4 @@ public class PricingConfiguration
     [StringLength(100)]
     public string? UpdatedBy { get; set; }
 
-    /// <summary>
-    /// Optimistic concurrency token.
-    /// </summary>
-    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
-    public byte[] RowVersion { get; set; } = [];
 }

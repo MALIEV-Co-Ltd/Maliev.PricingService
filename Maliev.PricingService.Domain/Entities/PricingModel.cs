@@ -112,10 +112,6 @@ public class PricingModel
     [StringLength(500)]
     public string ModelFilePath { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Optimistic concurrency token.
-    /// </summary>
-    public byte[] RowVersion { get; set; } = [];
 }
 
 /// <summary>

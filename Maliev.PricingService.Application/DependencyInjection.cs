@@ -10,7 +10,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IPricingEngine, RuleBasedPricingEngine>();
         services.AddScoped<IMLPricingEngine, MLPricingEngine>();
-        services.AddScoped<PricingOrchestrator>();
+        services.AddScoped<IPricingOrchestrator, PricingOrchestrator>();
 
         return services;
     }

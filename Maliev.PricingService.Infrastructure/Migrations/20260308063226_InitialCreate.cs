@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Maliev.PricingService.Application.Migrations
+namespace Maliev.PricingService.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration
@@ -15,7 +15,7 @@ namespace Maliev.PricingService.Application.Migrations
                 name: "pricing_configurations",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
                     MaterialId = table.Column<Guid>(type: "uuid", nullable: false),
                     ManufacturingProcessId = table.Column<Guid>(type: "uuid", nullable: false),
                     MaterialPricePerCm3 = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: false),
@@ -34,18 +34,18 @@ namespace Maliev.PricingService.Application.Migrations
                     CreatedBy = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     UpdatedBy = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
-                    row_version = table.Column<byte[]>(type: "bytea", nullable: false, defaultValueSql: "decode('0000000000000000', 'hex')")
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pricing_configurations", x => x.id);
+                    table.PrimaryKey("PK_pricing_configurations", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
                 name: "pricing_models",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     Version = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     ModelType = table.Column<int>(type: "integer", nullable: false),
@@ -60,18 +60,18 @@ namespace Maliev.PricingService.Application.Migrations
                     DeployedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     RetiredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ModelFilePath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    row_version = table.Column<byte[]>(type: "bytea", nullable: false, defaultValueSql: "decode('0000000000000000', 'hex')")
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pricing_models", x => x.id);
+                    table.PrimaryKey("PK_pricing_models", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
                 name: "pricing_audit_records",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
                     QuotationId = table.Column<Guid>(type: "uuid", nullable: true),
                     FileId = table.Column<Guid>(type: "uuid", nullable: false),
                     CustomerId = table.Column<Guid>(type: "uuid", nullable: false),
@@ -115,20 +115,60 @@ namespace Maliev.PricingService.Application.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pricing_audit_records", x => x.id);
+                    table.PrimaryKey("PK_pricing_audit_records", x => x.Id);
                     table.ForeignKey(
                         name: "FK_pricing_audit_records_pricing_configurations_PricingConfigu~",
                         column: x => x.PricingConfigurationId,
                         principalTable: "pricing_configurations",
-                        principalColumn: "id",
+                        principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "pricing_snapshots",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    OrderId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    QuotationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    EmployeeId = table.Column<string>(type: "text", nullable: false),
+                    Technology = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    MaterialCode = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    MaterialBrand = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    LayerHeight = table.Column<decimal>(type: "numeric", nullable: true),
+                    InfillPercentage = table.Column<decimal>(type: "numeric", nullable: true),
+                    SupportType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    PrintOrientation = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    CalculatedPrice = table.Column<decimal>(type: "numeric", nullable: false),
+                    ManualOverridePrice = table.Column<decimal>(type: "numeric", nullable: true),
+                    PricingAuditRecordId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    SupersededById = table.Column<Guid>(type: "uuid", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_pricing_snapshots", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_pricing_snapshots_pricing_audit_records_PricingAuditRecordId",
+                        column: x => x.PricingAuditRecordId,
+                        principalTable: "pricing_audit_records",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_pricing_snapshots_pricing_snapshots_SupersededById",
+                        column: x => x.SupersededById,
+                        principalTable: "pricing_snapshots",
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
                 name: "pricing_training_data",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
                     PricingAuditRecordId = table.Column<Guid>(type: "uuid", nullable: false),
                     OrderId = table.Column<Guid>(type: "uuid", nullable: true),
                     CustomerAccepted = table.Column<bool>(type: "boolean", nullable: false),
@@ -146,18 +186,18 @@ namespace Maliev.PricingService.Application.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pricing_training_data", x => x.id);
+                    table.PrimaryKey("PK_pricing_training_data", x => x.Id);
                     table.ForeignKey(
                         name: "FK_pricing_training_data_pricing_audit_records_PricingAuditRec~",
                         column: x => x.PricingAuditRecordId,
                         principalTable: "pricing_audit_records",
-                        principalColumn: "id",
+                        principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_pricing_training_data_pricing_models_TrainedModelId",
                         column: x => x.TrainedModelId,
                         principalTable: "pricing_models",
-                        principalColumn: "id");
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateIndex(
@@ -170,6 +210,16 @@ namespace Maliev.PricingService.Application.Migrations
                 table: "pricing_configurations",
                 columns: new[] { "MaterialId", "ManufacturingProcessId", "EffectiveFrom" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_pricing_snapshots_PricingAuditRecordId",
+                table: "pricing_snapshots",
+                column: "PricingAuditRecordId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_pricing_snapshots_SupersededById",
+                table: "pricing_snapshots",
+                column: "SupersededById");
 
             migrationBuilder.CreateIndex(
                 name: "IX_pricing_training_data_PricingAuditRecordId",
@@ -186,6 +236,9 @@ namespace Maliev.PricingService.Application.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "pricing_snapshots");
+
             migrationBuilder.DropTable(
                 name: "pricing_training_data");
 

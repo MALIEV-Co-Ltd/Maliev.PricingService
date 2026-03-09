@@ -43,6 +43,10 @@ public class PricingDbContext : DbContext, IPricingDbContext
         {
             builder.ToTable("pricing_snapshots");
             builder.HasKey(x => x.Id);
+            builder.Property<uint>("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
         });
 
         // PricingConfiguration Configuration
@@ -55,6 +59,10 @@ public class PricingDbContext : DbContext, IPricingDbContext
             builder.Property(x => x.MachineHourlyRate).HasPrecision(18, 2);
             builder.Property(x => x.PrintSpeedCm3PerHour).HasPrecision(18, 4);
             builder.HasIndex(x => new { x.MaterialId, x.ManufacturingProcessId, x.EffectiveFrom }).IsUnique();
+            builder.Property<uint>("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
         });
 
         // PricingAuditRecord Configuration
@@ -105,6 +113,10 @@ public class PricingDbContext : DbContext, IPricingDbContext
             builder.Property(x => x.MeanAbsoluteError).HasPrecision(18, 6);
             builder.Property(x => x.MeanAbsolutePercentageError).HasPrecision(18, 4);
             builder.Property(x => x.RSquared).HasPrecision(18, 4);
+            builder.Property<uint>("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
         });
     }
 
