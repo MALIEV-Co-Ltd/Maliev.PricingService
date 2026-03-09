@@ -52,3 +52,21 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Test Results
+TestResults/
+
+# Coverage
+*.cobertura.xml
+
+# NuGet
+**/project.assets.json
+**/obj/*.nuget.*
+
+# IDE
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
