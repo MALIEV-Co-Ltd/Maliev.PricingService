@@ -12,7 +12,7 @@ namespace Maliev.PricingService.Api.Controllers;
 /// Controller for on-demand pricing calculations.
 /// </summary>
 [ApiController]
-[ApiVersion("1.0")]
+[ApiVersion("1")]
 [Route("pricing/v{version:apiVersion}/calculate")]
 public class PricingController : ControllerBase
 {
