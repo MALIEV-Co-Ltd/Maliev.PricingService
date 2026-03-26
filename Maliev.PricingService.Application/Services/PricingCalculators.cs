@@ -1,3 +1,5 @@
+using Maliev.PricingService.Application.DTOs;
+
 namespace Maliev.PricingService.Application.Services;
 
 public interface IPricingCalculator
@@ -6,6 +8,7 @@ public interface IPricingCalculator
     decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2, 
         decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
         decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
         Dictionary<string, string> processParameters);
 }
 
@@ -16,6 +19,7 @@ public class FdmPricingCalculator : IPricingCalculator
     public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
         decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
         decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
         Dictionary<string, string> processParameters)
     {
         decimal density = 1.04m;
@@ -54,9 +58,25 @@ public class FdmPricingCalculator : IPricingCalculator
         decimal printTimeHours = effectiveLayerTime * (decimal)totalLayers / 3600;
 
         decimal machineCost = printTimeHours * machineHourlyRate;
-        decimal total = materialCost + machineCost + setupFee;
+        decimal baseTotal = materialCost + machineCost + setupFee;
 
-        return Math.Max(total, minimumOrderPrice);
+        decimal dfmSurchargePercent = 0m;
+        if (dfm != null)
+        {
+            if (dfm.ThinWallCount > 0)
+            {
+                dfmSurchargePercent += Math.Min(dfm.ThinWallCount * 5m, 15m);
+            }
+            if (dfm.SupportRequired && dfm.EstimatedSupportVolumeCm3.HasValue && dfm.EstimatedSupportVolumeCm3.Value > volumeCm3 * 0.5m)
+            {
+                dfmSurchargePercent = Math.Max(dfmSurchargePercent, 15m);
+            }
+        }
+
+        decimal totalWithDfm = baseTotal * (1 + dfmSurchargePercent / 100m);
+        decimal totalWithMargin = totalWithDfm * marginMultiplier;
+
+        return Math.Max(totalWithMargin, minimumOrderPrice);
     }
 }
 
@@ -67,6 +87,7 @@ public class SlaPricingCalculator : IPricingCalculator
     public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
         decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
         decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
         Dictionary<string, string> processParameters)
     {
         decimal totalLayers = boundingBoxZ > 0 ? 100 / 0.05m : 2000;
@@ -96,9 +117,29 @@ public class SlaPricingCalculator : IPricingCalculator
         }
 
         decimal machineCost = printTimeHours * machineHourlyRate;
-        decimal total = materialCost + machineCost + setupFee;
+        decimal baseTotal = materialCost + machineCost + setupFee;
 
-        return Math.Max(total, minimumOrderPrice);
+        decimal dfmSurchargePercent = 0m;
+        if (dfm != null)
+        {
+            if (dfm.ResinTrappingRisk)
+            {
+                dfmSurchargePercent += 10m;
+            }
+            if (dfm.SuctionRisk)
+            {
+                dfmSurchargePercent += 5m;
+            }
+            if (dfm.ThinWallCount > 0)
+            {
+                dfmSurchargePercent += Math.Min(dfm.ThinWallCount * 3m, 10m);
+            }
+        }
+
+        decimal totalWithDfm = baseTotal * (1 + dfmSurchargePercent / 100m);
+        decimal totalWithMargin = totalWithDfm * marginMultiplier;
+
+        return Math.Max(totalWithMargin, minimumOrderPrice);
     }
 }
 
@@ -109,6 +150,7 @@ public class CncPricingCalculator : IPricingCalculator
     public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
         decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
         decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
         Dictionary<string, string> processParameters)
     {
         decimal blockVolume = boundingBoxX * boundingBoxY * boundingBoxZ;
@@ -140,8 +182,32 @@ public class CncPricingCalculator : IPricingCalculator
 
         decimal blockMaterialCost = blockVolume * materialCostPerCm3;
         decimal machineCost = machiningTimeHours * machineHourlyRate * complexityFactor;
-        decimal total = blockMaterialCost + machineCost + setupFee;
+        decimal baseTotal = blockMaterialCost + machineCost + setupFee;
 
-        return Math.Max(total, minimumOrderPrice);
+        decimal dfmSurchargePercent = 0m;
+        if (dfm != null)
+        {
+            if (dfm.SharpCornerCount > 0)
+            {
+                dfmSurchargePercent += Math.Min(dfm.SharpCornerCount * 2m, 25m);
+            }
+            if (dfm.HasUndercuts)
+            {
+                dfmSurchargePercent += 15m;
+            }
+            if (dfm.RequiresEdm)
+            {
+                dfmSurchargePercent += 20m;
+            }
+            if (dfm.RequiresGrinding)
+            {
+                dfmSurchargePercent += 15m;
+            }
+        }
+
+        decimal totalWithDfm = baseTotal * (1 + dfmSurchargePercent / 100m);
+        decimal totalWithMargin = totalWithDfm * marginMultiplier;
+
+        return Math.Max(totalWithMargin, minimumOrderPrice);
     }
 }

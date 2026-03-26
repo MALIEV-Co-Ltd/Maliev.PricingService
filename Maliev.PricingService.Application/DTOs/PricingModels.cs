@@ -11,7 +11,9 @@ public record PricingRequest
     public decimal Quantity { get; init; }
     public string Currency { get; init; } = "THB";
     public GeometryMetrics Geometry { get; init; } = new();
+    public DfmMetrics? Dfm { get; init; }
     public Guid? CorrelationId { get; init; }
+    public string? StoragePath { get; init; }
 }
 
 public record GeometryMetrics
@@ -26,10 +28,26 @@ public record GeometryMetrics
     public int TriangleCount { get; init; }
 }
 
+public record DfmMetrics
+{
+    public string ReportType { get; init; } = "FDM";
+    public int ThinWallCount { get; init; }
+    public bool SupportRequired { get; init; }
+    public decimal? EstimatedSupportVolumeCm3 { get; init; }
+    public bool ResinTrappingRisk { get; init; }
+    public bool SuctionRisk { get; init; }
+    public int SharpCornerCount { get; init; }
+    public bool HasUndercuts { get; init; }
+    public bool RequiresEdm { get; init; }
+    public bool RequiresGrinding { get; init; }
+}
+
 public record PricingResult
 {
     public decimal UnitPrice { get; init; }
     public decimal TotalAmount { get; init; }
     public decimal ConfidenceScore { get; init; }
     public string EngineName { get; init; } = string.Empty;
+    public Guid AuditId { get; init; }
+    public int EstimatedLeadTimeDays { get; init; }
 }

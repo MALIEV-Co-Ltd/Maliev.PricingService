@@ -11,17 +11,7 @@ public enum PricingStrategy
     RuleBased = 1,
 
     /// <summary>
-    /// Machine learning enhanced calculation.
-    /// </summary>
-    MLEnhanced = 2,
-
-    /// <summary>
     /// Manual pricing by staff.
     /// </summary>
-    Manual = 3,
-
-    /// <summary>
-    /// Combination of rule-based with ML adjustments.
-    /// </summary>
-    Hybrid = 4
+    Manual = 3
 }

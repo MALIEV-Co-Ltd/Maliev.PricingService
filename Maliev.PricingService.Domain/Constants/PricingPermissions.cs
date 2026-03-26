@@ -18,14 +18,8 @@ public static class PricingPermissions
     public const string ConfigurationsUpdate = "pricing.configurations.update";
     /// <summary>Permission to delete pricing configurations.</summary>
     public const string ConfigurationsDelete = "pricing.configurations.delete";
-    /// <summary>Permission to read ML models.</summary>
-    public const string ModelsRead = "pricing.models.read";
-    /// <summary>Permission to train ML models.</summary>
-    public const string ModelsTrain = "pricing.models.train";
-    /// <summary>Permission to deploy ML models.</summary>
-    public const string ModelsDeploy = "pricing.models.deploy";
-    /// <summary>Permission to retire ML models.</summary>
-    public const string ModelsRetire = "pricing.models.retire";
+    /// <summary>Permission to read pricing catalog data (lead times, volume tiers).</summary>
+    public const string CatalogRead = "pricing.catalog.read";
 
     // Snapshot Operations
     /// <summary>Permission to create pricing snapshots.</summary>
@@ -48,10 +42,7 @@ public static class PricingPermissions
         { ConfigurationsCreate, "Create new pricing configurations" },
         { ConfigurationsUpdate, "Update existing pricing configurations" },
         { ConfigurationsDelete, "Delete pricing configurations" },
-        { ModelsRead, "Read ML pricing model details" },
-        { ModelsTrain, "Train new ML pricing models" },
-        { ModelsDeploy, "Deploy ML pricing models to production" },
-        { ModelsRetire, "Retire ML pricing models" },
+        { CatalogRead, "Read pricing catalog data (lead times, volume tiers)" },
         { SnapshotsCreate, "Create pricing snapshots" },
         { SnapshotsRead, "Read pricing snapshots" },
         { SnapshotsAccept, "Accept pricing snapshots" },
@@ -91,18 +82,19 @@ public static class PricingPredefinedRoles
             PricingPermissions.ConfigurationsRead,
             PricingPermissions.ConfigurationsCreate,
             PricingPermissions.ConfigurationsUpdate,
-            PricingPermissions.ModelsRead
+            PricingPermissions.CatalogRead
         }),
         (Viewer, "Read-only access to pricing data and audit records", new[]
         {
             PricingPermissions.AuditRead,
             PricingPermissions.ConfigurationsRead,
-            PricingPermissions.ModelsRead
+            PricingPermissions.CatalogRead
         }),
         (Calculator, "Calculate prices for quotations (for service-to-service calls)", new[]
         {
             PricingPermissions.CalculationsCreate,
-            PricingPermissions.AuditRead
+            PricingPermissions.AuditRead,
+            PricingPermissions.CatalogRead
         })
     };
 }

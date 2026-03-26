@@ -12,6 +12,48 @@ namespace Maliev.PricingService.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "lead_time_options",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Code = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    MinBusinessDays = table.Column<int>(type: "integer", nullable: false),
+                    MaxBusinessDays = table.Column<int>(type: "integer", nullable: false),
+                    PriceMultiplier = table.Column<decimal>(type: "numeric(6,4)", precision: 6, scale: 4, nullable: false),
+                    IsDefault = table.Column<bool>(type: "boolean", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_lead_time_options", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "machine_capacity_configs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProcessType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    MachineCount = table.Column<int>(type: "integer", nullable: false),
+                    AvgThroughputPartsPerDay = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: false),
+                    CurrentQueueDepth = table.Column<int>(type: "integer", nullable: false),
+                    SetupTimeDays = table.Column<int>(type: "integer", nullable: false),
+                    ShippingBufferDays = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_machine_capacity_configs", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "pricing_configurations",
                 columns: table => new
                 {
@@ -42,29 +84,21 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "pricing_models",
+                name: "volume_discount_tiers",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    Version = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    ModelType = table.Column<int>(type: "integer", nullable: false),
-                    TrainingDataCount = table.Column<int>(type: "integer", nullable: false),
-                    TrainingStartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    TrainingCompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    TrainingDuration = table.Column<TimeSpan>(type: "interval", nullable: false),
-                    MeanAbsoluteError = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: false),
-                    MeanAbsolutePercentageError = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: false),
-                    RSquared = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: false),
+                    MinQuantity = table.Column<int>(type: "integer", nullable: false),
+                    MaxQuantity = table.Column<int>(type: "integer", nullable: true),
+                    DiscountPercent = table.Column<decimal>(type: "numeric(6,2)", precision: 6, scale: 2, nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    DeployedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    RetiredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ModelFilePath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                    SortOrder = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pricing_models", x => x.Id);
+                    table.PrimaryKey("PK_volume_discount_tiers", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -164,41 +198,27 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                         principalColumn: "Id");
                 });
 
-            migrationBuilder.CreateTable(
-                name: "pricing_training_data",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PricingAuditRecordId = table.Column<Guid>(type: "uuid", nullable: false),
-                    OrderId = table.Column<Guid>(type: "uuid", nullable: true),
-                    CustomerAccepted = table.Column<bool>(type: "boolean", nullable: false),
-                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    JobCompleted = table.Column<bool>(type: "boolean", nullable: false),
-                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    JobSucceeded = table.Column<bool>(type: "boolean", nullable: false),
-                    ActualMaterialUsedCm3 = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: true),
-                    ActualPrintTimeHours = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: true),
-                    ActualLaborHours = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: true),
-                    ActualTotalCost = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: true),
-                    ActualProfitMargin = table.Column<decimal>(type: "numeric(18,4)", precision: 18, scale: 4, nullable: true),
-                    UsedForTraining = table.Column<bool>(type: "boolean", nullable: false),
-                    TrainedModelId = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_pricing_training_data", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_pricing_training_data_pricing_audit_records_PricingAuditRec~",
-                        column: x => x.PricingAuditRecordId,
-                        principalTable: "pricing_audit_records",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_pricing_training_data_pricing_models_TrainedModelId",
-                        column: x => x.TrainedModelId,
-                        principalTable: "pricing_models",
-                        principalColumn: "Id");
-                });
+            migrationBuilder.CreateIndex(
+                name: "IX_lead_time_options_Code",
+                table: "lead_time_options",
+                column: "Code",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_lead_time_options_IsActive",
+                table: "lead_time_options",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_machine_capacity_configs_IsActive",
+                table: "machine_capacity_configs",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_machine_capacity_configs_ProcessType",
+                table: "machine_capacity_configs",
+                column: "ProcessType",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_pricing_audit_records_PricingConfigurationId",
@@ -222,31 +242,33 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                 column: "SupersededById");
 
             migrationBuilder.CreateIndex(
-                name: "IX_pricing_training_data_PricingAuditRecordId",
-                table: "pricing_training_data",
-                column: "PricingAuditRecordId",
-                unique: true);
+                name: "IX_volume_discount_tiers_IsActive",
+                table: "volume_discount_tiers",
+                column: "IsActive");
 
             migrationBuilder.CreateIndex(
-                name: "IX_pricing_training_data_TrainedModelId",
-                table: "pricing_training_data",
-                column: "TrainedModelId");
+                name: "IX_volume_discount_tiers_MinQuantity",
+                table: "volume_discount_tiers",
+                column: "MinQuantity");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "lead_time_options");
+
+            migrationBuilder.DropTable(
+                name: "machine_capacity_configs");
+
+            migrationBuilder.DropTable(
                 name: "pricing_snapshots");
 
             migrationBuilder.DropTable(
-                name: "pricing_training_data");
+                name: "volume_discount_tiers");
 
             migrationBuilder.DropTable(
                 name: "pricing_audit_records");
-
-            migrationBuilder.DropTable(
-                name: "pricing_models");
 
             migrationBuilder.DropTable(
                 name: "pricing_configurations");

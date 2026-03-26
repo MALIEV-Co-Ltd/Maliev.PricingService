@@ -9,6 +9,7 @@ namespace Maliev.PricingService.Tests.Unit;
 public class FdmPricingCalculatorTests
 {
     private readonly FdmPricingCalculator _calculator = new();
+    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
     public void Calculate_ValidInputs_ReturnsCorrectPrice()
@@ -24,6 +25,8 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: 100m,
             setupFee: 50m,
             minimumOrderPrice: 300m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.InRange(result, 300m, 500m);
@@ -43,6 +46,8 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: 100m,
             setupFee: 50m,
             minimumOrderPrice: 300m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.Equal(300m, result);
@@ -64,6 +69,8 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: 100m,
             setupFee: 50m,
             minimumOrderPrice: 300m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: parameters);
 
         Assert.InRange(result, 300m, 500m);
@@ -83,6 +90,8 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: 100m,
             setupFee: 0m,
             minimumOrderPrice: 0m,
+            marginMultiplier: 1.0m,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         var withSupport = _calculator.Calculate(
@@ -96,15 +105,17 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: 100m,
             setupFee: 0m,
             minimumOrderPrice: 0m,
+            marginMultiplier: 1.0m,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.True(withSupport > withoutSupport);
     }
 
     [Theory]
-    [InlineData(100, 50, 10, 5, 0.5, 100, 50, 300, true)]  // Above minimum - check price >= min
-    [InlineData(10, 2, 1, 1, 0.5, 100, 50, 300, true)]    // Below minimum
-    [InlineData(200, 50, 20, 10, 1.0, 200, 100, 300, true)] // High volume
+    [InlineData(100, 50, 10, 5, 0.5, 100, 50, 300, true)]
+    [InlineData(10, 2, 1, 1, 0.5, 100, 50, 300, true)]
+    [InlineData(200, 50, 20, 10, 1.0, 200, 100, 300, true)]
     public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal support, decimal surface, 
         decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
     {
@@ -119,6 +130,8 @@ public class FdmPricingCalculatorTests
             machineHourlyRate: machineRate,
             setupFee: setup,
             minimumOrderPrice: minOrder,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         if (expectMin)
@@ -131,6 +144,7 @@ public class FdmPricingCalculatorTests
 public class SlaPricingCalculatorTests
 {
     private readonly SlaPricingCalculator _calculator = new();
+    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
     public void Calculate_ValidInputs_ReturnsCorrectPrice()
@@ -146,6 +160,8 @@ public class SlaPricingCalculatorTests
             machineHourlyRate: 150m,
             setupFee: 100m,
             minimumOrderPrice: 500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.InRange(result, 500m, 1000m);
@@ -165,9 +181,11 @@ public class SlaPricingCalculatorTests
             machineHourlyRate: 150m,
             setupFee: 100m,
             minimumOrderPrice: 500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
-        Assert.InRange(result, 400m, 600m);
+        Assert.InRange(result, 700m, 950m);
     }
 
     [Fact]
@@ -186,14 +204,16 @@ public class SlaPricingCalculatorTests
             machineHourlyRate: 150m,
             setupFee: 0m,
             minimumOrderPrice: 500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: parameters);
 
-        Assert.InRange(result, 500m, 1000m);
+        Assert.InRange(result, 700m, 1500m);
     }
 
     [Theory]
-    [InlineData(200, 50, 200, 10, 2.0, 150, 100, 500, true)]  // Above minimum - check price >= min
-    [InlineData(10, 2, 10, 1, 2.0, 150, 100, 500, true)]     // Below minimum
+    [InlineData(200, 50, 200, 10, 2.0, 150, 100, 500, true)]
+    [InlineData(10, 2, 10, 1, 2.0, 150, 100, 500, true)]
     public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal support, decimal surface,
         decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
     {
@@ -208,6 +228,8 @@ public class SlaPricingCalculatorTests
             machineHourlyRate: machineRate,
             setupFee: setup,
             minimumOrderPrice: minOrder,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         if (expectMin)
@@ -220,6 +242,7 @@ public class SlaPricingCalculatorTests
 public class CncPricingCalculatorTests
 {
     private readonly CncPricingCalculator _calculator = new();
+    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
     public void Calculate_ValidInputs_ReturnsCorrectPrice()
@@ -235,9 +258,11 @@ public class CncPricingCalculatorTests
             machineHourlyRate: 500m,
             setupFee: 500m,
             minimumOrderPrice: 2500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
-        Assert.InRange(result, 2500m, 10000m);
+        Assert.InRange(result, 2500m, 15000m);
     }
 
     [Fact]
@@ -254,6 +279,8 @@ public class CncPricingCalculatorTests
             machineHourlyRate: 500m,
             setupFee: 500m,
             minimumOrderPrice: 2500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.Equal(2500m, result);
@@ -273,6 +300,8 @@ public class CncPricingCalculatorTests
             machineHourlyRate: 500m,
             setupFee: 0m,
             minimumOrderPrice: 0m,
+            marginMultiplier: 1.0m,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         var complexPart = _calculator.Calculate(
@@ -286,6 +315,8 @@ public class CncPricingCalculatorTests
             machineHourlyRate: 500m,
             setupFee: 0m,
             minimumOrderPrice: 0m,
+            marginMultiplier: 1.0m,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         Assert.True(complexPart > simplePart * 0.1m);
@@ -307,14 +338,16 @@ public class CncPricingCalculatorTests
             machineHourlyRate: 500m,
             setupFee: 0m,
             minimumOrderPrice: 2500m,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: parameters);
 
         Assert.InRange(result, 2500m, 50000m);
     }
 
     [Theory]
-    [InlineData(100, 500, 500, 10, 5.0, 500, 500, 2500, true)]  // Above minimum - check price >= min
-    [InlineData(10, 10, 10, 1, 5.0, 500, 500, 2500, true)]      // Below minimum
+    [InlineData(100, 500, 500, 10, 5.0, 500, 500, 2500, true)]
+    [InlineData(10, 10, 10, 1, 5.0, 500, 500, 2500, true)]
     public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal surface, decimal boxProduct,
         decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
     {
@@ -331,6 +364,8 @@ public class CncPricingCalculatorTests
             machineHourlyRate: machineRate,
             setupFee: setup,
             minimumOrderPrice: minOrder,
+            marginMultiplier: DefaultMarginMultiplier,
+            dfm: null,
             processParameters: new Dictionary<string, string>());
 
         if (expectMin)
@@ -377,6 +412,7 @@ public class RuleBasedPricingEngineTests
             MachineHourlyRate = 100m,
             SetupCostFlat = 50m,
             MinimumOrderPrice = 300m,
+            MarginMultiplier = 1.5m,
             IsActive = true,
             EffectiveFrom = DateTime.UtcNow
         };
@@ -423,6 +459,7 @@ public class RuleBasedPricingEngineTests
             MachineHourlyRate = 150m,
             SetupCostFlat = 100m,
             MinimumOrderPrice = 500m,
+            MarginMultiplier = 1.5m,
             IsActive = true,
             EffectiveFrom = DateTime.UtcNow
         };
@@ -469,6 +506,7 @@ public class RuleBasedPricingEngineTests
             MachineHourlyRate = 500m,
             SetupCostFlat = 500m,
             MinimumOrderPrice = 2500m,
+            MarginMultiplier = 1.5m,
             IsActive = true,
             EffectiveFrom = DateTime.UtcNow
         };
@@ -515,6 +553,7 @@ public class RuleBasedPricingEngineTests
             MachineHourlyRate = 100m,
             SetupCostFlat = 50m,
             MinimumOrderPrice = 300m,
+            MarginMultiplier = 1.5m,
             IsActive = true,
             EffectiveFrom = DateTime.UtcNow
         };
@@ -560,6 +599,7 @@ public class RuleBasedPricingEngineTests
             MachineHourlyRate = 100m,
             SetupCostFlat = 50m,
             MinimumOrderPrice = 300m,
+            MarginMultiplier = 1.5m,
             IsActive = true,
             EffectiveFrom = DateTime.UtcNow
         };

@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Maliev.PricingService.Infrastructure.Migrations
 {
     [DbContext(typeof(PricingDbContext))]
-    [Migration("20260308063226_InitialCreate")]
+    [Migration("20260325105604_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -20,10 +20,115 @@ namespace Maliev.PricingService.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.3")
+                .HasAnnotation("ProductVersion", "10.0.5")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.LeadTimeOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MaxBusinessDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MinBusinessDays")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("PriceMultiplier")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("lead_time_options", (string)null);
+                });
+
+            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.MachineCapacityConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AvgThroughputPartsPerDay")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("CurrentQueueDepth")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MachineCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProcessType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("SetupTimeDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ShippingBufferDays")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("ProcessType")
+                        .IsUnique();
+
+                    b.ToTable("machine_capacity_configs", (string)null);
+                });
 
             modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingAuditRecord", b =>
                 {
@@ -266,74 +371,6 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                     b.ToTable("pricing_configurations", (string)null);
                 });
 
-            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingModel", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DeployedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<decimal>("MeanAbsoluteError")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
-
-                    b.Property<decimal>("MeanAbsolutePercentageError")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
-
-                    b.Property<string>("ModelFilePath")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<int>("ModelType")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<decimal>("RSquared")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
-
-                    b.Property<DateTime?>("RetiredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("TrainingCompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("TrainingDataCount")
-                        .HasColumnType("integer");
-
-                    b.Property<TimeSpan>("TrainingDuration")
-                        .HasColumnType("interval");
-
-                    b.Property<DateTime>("TrainingStartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("pricing_models", (string)null);
-                });
-
             modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingSnapshot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -417,67 +454,43 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                     b.ToTable("pricing_snapshots", (string)null);
                 });
 
-            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingTrainingData", b =>
+            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.VolumeDiscountTier", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime?>("AcceptedAt")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<decimal?>("ActualLaborHours")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                    b.Property<decimal>("DiscountPercent")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)");
 
-                    b.Property<decimal?>("ActualMaterialUsedCm3")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
 
-                    b.Property<decimal?>("ActualPrintTimeHours")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                    b.Property<int?>("MaxQuantity")
+                        .HasColumnType("integer");
 
-                    b.Property<decimal?>("ActualProfitMargin")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                    b.Property<int>("MinQuantity")
+                        .HasColumnType("integer");
 
-                    b.Property<decimal?>("ActualTotalCost")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
-                    b.Property<DateTime?>("CompletedAt")
+                    b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("CustomerAccepted")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("JobCompleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("JobSucceeded")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid?>("OrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PricingAuditRecordId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("TrainedModelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("UsedForTraining")
-                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PricingAuditRecordId")
-                        .IsUnique();
+                    b.HasIndex("IsActive");
 
-                    b.HasIndex("TrainedModelId");
+                    b.HasIndex("MinQuantity");
 
-                    b.ToTable("pricing_training_data", (string)null);
+                    b.ToTable("volume_discount_tiers", (string)null);
                 });
 
             modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingAuditRecord", b =>
@@ -506,28 +519,6 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                     b.Navigation("PricingAuditRecord");
 
                     b.Navigation("SupersededBy");
-                });
-
-            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingTrainingData", b =>
-                {
-                    b.HasOne("Maliev.PricingService.Domain.Entities.PricingAuditRecord", "PricingAuditRecord")
-                        .WithOne("TrainingData")
-                        .HasForeignKey("Maliev.PricingService.Domain.Entities.PricingTrainingData", "PricingAuditRecordId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Maliev.PricingService.Domain.Entities.PricingModel", "TrainedModel")
-                        .WithMany()
-                        .HasForeignKey("TrainedModelId");
-
-                    b.Navigation("PricingAuditRecord");
-
-                    b.Navigation("TrainedModel");
-                });
-
-            modelBuilder.Entity("Maliev.PricingService.Domain.Entities.PricingAuditRecord", b =>
-                {
-                    b.Navigation("TrainingData");
                 });
 #pragma warning restore 612, 618
         }

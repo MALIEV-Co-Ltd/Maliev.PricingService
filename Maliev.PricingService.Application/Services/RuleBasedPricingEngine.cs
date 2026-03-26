@@ -15,13 +15,24 @@ public class RuleBasedPricingEngine : IPricingEngine
         _logger = logger;
         _calculators = new Dictionary<string, IPricingCalculator>(StringComparer.OrdinalIgnoreCase)
         {
+            // FDM
             { "FDM", new FdmPricingCalculator() },
             { "Fused Deposition Modeling", new FdmPricingCalculator() },
+            { "3D Printing (FDM)", new FdmPricingCalculator() },
+            // SLA/DLP
             { "SLA", new SlaPricingCalculator() },
             { "Stereolithography", new SlaPricingCalculator() },
             { "DLP", new SlaPricingCalculator() },
+            { "3D Printing (SLA)", new SlaPricingCalculator() },
+            { "3D Printing (SLA/DLP)", new SlaPricingCalculator() },
+            // CNC
             { "CNC", new CncPricingCalculator() },
-            { "CNC Machining", new CncPricingCalculator() }
+            { "CNC Machining", new CncPricingCalculator() },
+            // Sheet Metal
+            { "Sheet Metal", new CncPricingCalculator() },
+            { "Sheet Metal Fabrication", new CncPricingCalculator() },
+            // Injection Molding
+            { "Injection Molding", new CncPricingCalculator() },
         };
     }
 
@@ -51,6 +62,8 @@ public class RuleBasedPricingEngine : IPricingEngine
             configuration.MachineHourlyRate,
             configuration.SetupCostFlat,
             configuration.MinimumOrderPrice,
+            configuration.MarginMultiplier,
+            request.Dfm,
             processParameters);
 
         return new PricingResult

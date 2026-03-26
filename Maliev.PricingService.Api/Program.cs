@@ -4,6 +4,7 @@ using Maliev.PricingService.Api.Services;
 using Maliev.PricingService.Application;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Infrastructure;
+using Maliev.PricingService.Infrastructure.Data.SeedData;
 using Maliev.PricingService.Infrastructure.Persistence;
 using Maliev.PricingService.Infrastructure.Clients;
 using Microsoft.EntityFrameworkCore;
@@ -33,7 +34,8 @@ try
     // Add MassTransit with RabbitMQ
     builder.AddMassTransitWithRabbitMq(x =>
     {
-        x.AddConsumer<FileAnalyzedEventConsumer>();
+        // FileAnalyzedEventConsumer disabled — replaced by frontend-triggered flow
+        // x.AddConsumer<FileAnalyzedEventConsumer>();
         x.AddConsumer<OrderCompletedEventConsumer>();
     });
 
@@ -77,6 +79,10 @@ try
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
     await app.MigrateDatabaseAsync<PricingDbContext>();
+    await app.SeedLeadTimeOptionsAsync();
+    await app.SeedVolumeDiscountTiersAsync();
+    await app.SeedMachineCapacityConfigsAsync();
+    await app.SeedPricingConfigurationsAsync();
 
     app.UseStandardMiddleware();
     if (!app.Environment.IsDevelopment()) { app.UseHttpsRedirection(); }

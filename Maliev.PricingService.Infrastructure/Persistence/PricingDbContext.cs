@@ -25,13 +25,16 @@ public class PricingDbContext : DbContext, IPricingDbContext
     public DbSet<PricingAuditRecord> AuditRecords => Set<PricingAuditRecord>();
 
     /// <inheritdoc/>
-    public DbSet<PricingTrainingData> TrainingData => Set<PricingTrainingData>();
-
-    /// <inheritdoc/>
     public DbSet<PricingSnapshot> Snapshots => Set<PricingSnapshot>();
 
     /// <inheritdoc/>
-    public DbSet<PricingModel> Models => Set<PricingModel>();
+    public DbSet<LeadTimeOption> LeadTimeOptions => Set<LeadTimeOption>();
+
+    /// <inheritdoc/>
+    public DbSet<VolumeDiscountTier> VolumeDiscountTiers => Set<VolumeDiscountTier>();
+
+    /// <inheritdoc/>
+    public DbSet<MachineCapacityConfig> MachineCapacityConfigs => Set<MachineCapacityConfig>();
 
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -89,30 +92,39 @@ public class PricingDbContext : DbContext, IPricingDbContext
             builder.Property(x => x.ConfidenceLevel).HasPrecision(18, 2);
         });
 
-        // PricingTrainingData Configuration
-        modelBuilder.Entity<PricingTrainingData>(builder =>
+        // LeadTimeOption Configuration
+        modelBuilder.Entity<LeadTimeOption>(builder =>
         {
-            builder.ToTable("pricing_training_data");
+            builder.ToTable("lead_time_options");
             builder.HasKey(x => x.Id);
-            builder.Property(x => x.ActualMaterialUsedCm3).HasPrecision(18, 6);
-            builder.Property(x => x.ActualPrintTimeHours).HasPrecision(18, 4);
-            builder.Property(x => x.ActualLaborHours).HasPrecision(18, 4);
-            builder.Property(x => x.ActualTotalCost).HasPrecision(18, 2);
-            builder.Property(x => x.ActualProfitMargin).HasPrecision(18, 4);
-
-            builder.HasOne(x => x.PricingAuditRecord)
-                   .WithOne(x => x.TrainingData)
-                   .HasForeignKey<PricingTrainingData>(x => x.PricingAuditRecordId);
+            builder.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            builder.HasIndex(x => x.Code).IsUnique();
+            builder.Property(x => x.Name).IsRequired().HasMaxLength(100);
+            builder.Property(x => x.PriceMultiplier).HasPrecision(6, 4).IsRequired();
+            builder.Property(x => x.SortOrder).HasDefaultValue(0);
+            builder.HasIndex(x => x.IsActive);
         });
 
-        // PricingModel Configuration
-        modelBuilder.Entity<PricingModel>(builder =>
+        // VolumeDiscountTier Configuration
+        modelBuilder.Entity<VolumeDiscountTier>(builder =>
         {
-            builder.ToTable("pricing_models");
+            builder.ToTable("volume_discount_tiers");
             builder.HasKey(x => x.Id);
-            builder.Property(x => x.MeanAbsoluteError).HasPrecision(18, 6);
-            builder.Property(x => x.MeanAbsolutePercentageError).HasPrecision(18, 4);
-            builder.Property(x => x.RSquared).HasPrecision(18, 4);
+            builder.Property(x => x.DiscountPercent).HasPrecision(6, 2).IsRequired();
+            builder.Property(x => x.SortOrder).HasDefaultValue(0);
+            builder.HasIndex(x => x.MinQuantity);
+            builder.HasIndex(x => x.IsActive);
+        });
+
+        // MachineCapacityConfig Configuration
+        modelBuilder.Entity<MachineCapacityConfig>(builder =>
+        {
+            builder.ToTable("machine_capacity_configs");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.ProcessType).IsRequired().HasMaxLength(50);
+            builder.HasIndex(x => x.ProcessType).IsUnique();
+            builder.Property(x => x.AvgThroughputPartsPerDay).HasPrecision(18, 4).IsRequired();
+            builder.HasIndex(x => x.IsActive);
             builder.Property<uint>("xmin")
                 .HasColumnType("xid")
                 .ValueGeneratedOnAddOrUpdate()

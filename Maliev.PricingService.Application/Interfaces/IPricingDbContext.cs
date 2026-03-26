@@ -8,8 +8,9 @@ public interface IPricingDbContext
     DbSet<PricingSnapshot> Snapshots { get; }
     DbSet<PricingAuditRecord> AuditRecords { get; }
     DbSet<PricingConfiguration> Configurations { get; }
-    DbSet<PricingModel> Models { get; }
-    DbSet<PricingTrainingData> TrainingData { get; }
-    
+    DbSet<LeadTimeOption> LeadTimeOptions { get; }
+    DbSet<VolumeDiscountTier> VolumeDiscountTiers { get; }
+    DbSet<MachineCapacityConfig> MachineCapacityConfigs { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
