@@ -24,7 +24,6 @@ public static class PricingCatalogSeedData
         new() { Id = G("LT_ECONOMY"), Code = "ECONOMY", Name = "Economy", MinBusinessDays = 10, MaxBusinessDays = 14, PriceMultiplier = 0.85m, IsDefault = false, IsActive = true, SortOrder = 10 },
         new() { Id = G("LT_STANDARD"), Code = "STANDARD", Name = "Standard", MinBusinessDays = 5, MaxBusinessDays = 7, PriceMultiplier = 1.00m, IsDefault = true, IsActive = true, SortOrder = 20 },
         new() { Id = G("LT_EXPRESS"), Code = "EXPRESS", Name = "Express", MinBusinessDays = 2, MaxBusinessDays = 3, PriceMultiplier = 1.30m, IsDefault = false, IsActive = true, SortOrder = 30 },
-        new() { Id = G("LT_RUSH"), Code = "RUSH", Name = "Rush (24h)", MinBusinessDays = 1, MaxBusinessDays = 1, PriceMultiplier = 1.80m, IsDefault = false, IsActive = true, SortOrder = 40 },
     ];
 
     public static IEnumerable<VolumeDiscountTier> GetVolumeDiscountTiers() =>
