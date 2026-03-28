@@ -34,6 +34,22 @@ public class PricingOrchestrator : IPricingOrchestrator
 
     public async Task<PricingResult> CalculatePriceAsync(PricingRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.MaterialId == Guid.Empty)
+        {
+            _logger.LogDebug(
+                "Pricing request has MaterialId == Guid.Empty; skipping calculation. FileId: {FileId}",
+                request.FileId);
+            return new PricingResult
+            {
+                UnitPrice = 0,
+                TotalAmount = 0,
+                ConfidenceScore = 1.0m,
+                EngineName = "None",
+                AuditId = Guid.Empty,
+                EstimatedLeadTimeDays = 0
+            };
+        }
+
         var config = await _context.Configurations
             .Where(c => c.MaterialId == request.MaterialId
                      && c.ManufacturingProcessId == request.ManufacturingProcessId
