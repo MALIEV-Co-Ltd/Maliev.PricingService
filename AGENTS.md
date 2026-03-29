@@ -102,6 +102,25 @@ _logger.LogInformation($"Processing pricing for FileId: {request.FileId}");
 - **Integration Tests**: Use `Testcontainers` for real infrastructure dependencies (Postgres, RabbitMQ, Redis).
 - **Naming**: `MethodName_StateUnderTest_ExpectedBehavior` (e.g., `CalculatePrice_InvalidInput_ThrowsException`).
 
+### Testing Strategy (4-Tier Pyramid Context)
+
+This service's tests cover **Tier 1 (Unit)** and **Tier 2 (Service Integration)** of the Maliev testing pyramid:
+
+| Tier | What to Test | Infrastructure |
+|------|-------------|---------------|
+| **Unit** | Business logic, domain models, service methods with mocked dependencies | None (mocks only) |
+| **Service Integration** | API endpoints, database persistence, permission enforcement, input validation | `BaseIntegrationTestFactory` + Testcontainers (Postgres/Redis/RabbitMQ) |
+
+**Tier 3 (System Integration)** — cross-service workflows and event chains — is tested in `Maliev.Aspire.Tests/`.
+
+#### Key Rules
+- Use `BaseIntegrationTestFactory<TProgram, TDbContext>` for integration tests (real Testcontainers, never InMemoryDatabase)
+- Test naming: `MethodName_StateUnderTest_ExpectedBehavior`
+- Minimum 80% code coverage
+- Use `[Fact]` for single cases, `[Theory]` for parameterized tests
+
+> Full ecosystem test strategy: `Maliev.Aspire.Tests/TEST_PLAN.md`
+
 ## 5. Agent Instructions
 
 1.  **Verification**: ALWAYS run `dotnet build` after making changes to ensure no compilation errors.
