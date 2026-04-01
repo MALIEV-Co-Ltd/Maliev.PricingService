@@ -80,6 +80,7 @@ public class PricingOrchestrator : IPricingOrchestrator
         var ruleResult = await _ruleEngine.CalculateAsync(request, config, cancellationToken);
 
         var capacity = await _context.MachineCapacityConfigs
+            .AsNoTracking()
             .FirstOrDefaultAsync(m => m.ProcessType == request.ManufacturingProcessName && m.IsActive, cancellationToken);
 
         int estimatedLeadTimeDays = 5;

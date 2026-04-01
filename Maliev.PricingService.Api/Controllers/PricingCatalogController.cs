@@ -18,14 +18,15 @@ public class PricingCatalogController(PricingDbContext db) : ControllerBase
     /// <summary>Returns all active lead time options.</summary>
     [HttpGet("lead-times")]
     [RequirePermission(PricingPermissions.CatalogRead)]
-    public async Task<ActionResult<IEnumerable<LeadTimeOptionResponse>>> GetLeadTimeOptions()
+    public async Task<ActionResult<IEnumerable<LeadTimeOptionResponse>>> GetLeadTimeOptions(CancellationToken cancellationToken)
     {
         var options = await db.LeadTimeOptions
+            .AsNoTracking()
             .Where(o => o.IsActive)
             .OrderBy(o => o.SortOrder)
             .Select(o => new LeadTimeOptionResponse(
                 o.Code, o.Name, o.MinBusinessDays, o.MaxBusinessDays, o.PriceMultiplier, o.IsDefault))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return Ok(options);
     }
@@ -33,13 +34,14 @@ public class PricingCatalogController(PricingDbContext db) : ControllerBase
     /// <summary>Returns all active volume discount tiers.</summary>
     [HttpGet("volume-tiers")]
     [RequirePermission(PricingPermissions.CatalogRead)]
-    public async Task<ActionResult<IEnumerable<VolumeDiscountTierResponse>>> GetVolumeDiscountTiers()
+    public async Task<ActionResult<IEnumerable<VolumeDiscountTierResponse>>> GetVolumeDiscountTiers(CancellationToken cancellationToken)
     {
         var tiers = await db.VolumeDiscountTiers
+            .AsNoTracking()
             .Where(t => t.IsActive)
             .OrderBy(t => t.SortOrder)
             .Select(t => new VolumeDiscountTierResponse(t.MinQuantity, t.MaxQuantity, t.DiscountPercent))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return Ok(tiers);
     }
@@ -51,19 +53,21 @@ public class PricingCatalogController(PricingDbContext db) : ControllerBase
     [HttpPost("bulk-pricing")]
     [RequirePermission(PricingPermissions.CalculationsCreate)]
     public async Task<ActionResult<IEnumerable<BulkPriceTierResponse>>> CalculateBulkPricing(
-        [FromBody] BulkPricingRequest request)
+        [FromBody] BulkPricingRequest request, CancellationToken cancellationToken)
     {
         var tiers = await db.VolumeDiscountTiers
+            .AsNoTracking()
             .Where(t => t.IsActive)
             .OrderBy(t => t.SortOrder)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         decimal leadTimeMultiplier = 1.0m;
         if (!string.IsNullOrEmpty(request.LeadTimeCode))
         {
             var lt = await db.LeadTimeOptions
+                .AsNoTracking()
                 .Where(o => o.IsActive && o.Code == request.LeadTimeCode.ToUpperInvariant())
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
             if (lt is not null) leadTimeMultiplier = lt.PriceMultiplier;
         }
 
