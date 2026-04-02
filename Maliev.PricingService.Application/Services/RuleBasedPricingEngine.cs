@@ -33,6 +33,14 @@ public class RuleBasedPricingEngine : IPricingEngine
             { "Sheet Metal Fabrication", new CncPricingCalculator() },
             // Injection Molding
             { "Injection Molding", new CncPricingCalculator() },
+            // Scanning
+            { "3D Scanning", new ScanningPricingCalculator() },
+            { "3D Scanning (Raw STL)", new ScanningPricingCalculator() },
+            { "3D Scanning + Reverse Engineering", new ScanningPricingCalculator() },
+            { "Scanning", new ScanningPricingCalculator() },
+            // Design
+            { "3D Design", new DesignPricingCalculator() },
+            { "Design", new DesignPricingCalculator() },
         };
     }
 
