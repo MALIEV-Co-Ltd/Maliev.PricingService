@@ -2,32 +2,32 @@
 
 This document provides instructions and guidelines for AI agents working on the Maliev Pricing Service codebase.
 
-## 1. Build and Test Commands
+## 1. Build, Test & Lint Commands
 
-**Prerequisites:**
-- .NET SDK (targeting `net10.0`)
-- Docker (required for integration tests via `Testcontainers`)
+All commands run from within this service directory (`B:\maliev\Maliev.PricingService`).
 
-### Core Commands
-| Action | Command | Notes |
-|--------|---------|-------|
-| **Build** | `dotnet build` | Treats warnings as errors. |
-| **Test (All)** | `dotnet test` | Runs all unit and integration tests. |
-| **Run API** | `dotnet run --project Maliev.PricingService/Maliev.PricingService.Api` | Starts the API service. |
-| **Format** | `dotnet format` | Enforces code style. |
+```powershell
+# Build (treats warnings as errors — all must be fixed)
+dotnet build Maliev.PricingService.slnx
 
-### Running Specific Tests
-To run a single test or a subset of tests, use the `--filter` option.
+# Run all tests
+dotnet test Maliev.PricingService.slnx --verbosity normal
 
-**Examples:**
-- Run a specific test method:
-  ```bash
-  dotnet test --filter "FullyQualifiedName=Maliev.PricingService.Tests.Unit.PricingOrchestratorTests.CalculatePriceAsync_ValidRequest_ReturnsResult"
-  ```
-- Run all tests in a class:
-  ```bash
-  dotnet test --filter "FullyQualifiedName~Maliev.PricingService.Tests.Unit.PricingOrchestratorTests"
-  ```
+# Run a single test method
+dotnet test --filter "FullyQualifiedName~PricingOrchestratorTests.CalculatePriceAsync_ValidRequest_ReturnsResult"
+
+# Run all tests in a class
+dotnet test --filter "FullyQualifiedName~PricingOrchestratorTests"
+
+# Run with code coverage
+dotnet test Maliev.PricingService.slnx --collect:"XPlat Code Coverage"
+
+# Format check
+dotnet format Maliev.PricingService.slnx
+
+# EF Core migrations (Infrastructure project only)
+dotnet ef migrations add <Name> --project Maliev.PricingService.Infrastructure --startup-project Maliev.PricingService.Infrastructure
+```
 
 ## 2. Project Structure & Architecture
 
@@ -48,59 +48,62 @@ To run a single test or a subset of tests, use the `--filter` option.
 
 ## 3. Code Style & Conventions
 
-Follow standard C# coding conventions and the existing patterns in the codebase.
-
-### General
-- **Namespaces**: Use file-scoped namespaces (e.g., `namespace Maliev.PricingService.Api.Controllers;`).
-- **Formatting**: PascalCase for public members/types, camelCase for parameters/locals.
-- **Async/Await**: Use `async/await` for all I/O-bound operations. Pass `CancellationToken` through to async methods.
-- **Nullability**: Nullable reference types are enabled (`<Nullable>enable</Nullable>`). Handle potential nulls explicitly.
-
-### Classes & Dependency Injection
-- Use `private readonly` fields for dependencies.
-- Inject dependencies via constructor.
-- Underscore prefix for private fields (e.g., `_orchestrator`).
-
-```csharp
-public class PricingService
-{
-    private readonly IPricingRepository _repository;
-
-    public PricingService(IPricingRepository repository)
-    {
-        _repository = repository;
-    }
-}
+### Workspace Structure
+```
+Maliev.PricingService/
+├── Maliev.PricingService.Api/           # Controllers, Consumers, Middleware
+├── Maliev.PricingService.Application/   # Use cases, DTOs, Interfaces, Handlers
+├── Maliev.PricingService.Domain/        # Entities, value objects, domain interfaces
+├── Maliev.PricingService.Infrastructure/ # EF Core DbContext, repositories, HTTP clients
+├── Maliev.PricingService.Tests/         # Unit + Integration tests (xUnit)
+├── Directory.Build.props                # Central package versioning
+└── Maliev.PricingService.slnx          # Solution file (.slnx preferred over .sln)
 ```
 
-### Logging
-- Use structured logging with `ILogger<T>`.
-- Do not interpolate strings in log messages; use placeholders.
+### C# Naming & Formatting
+- **Namespaces**: File-scoped (`namespace Maliev.PricingService.Api.Controllers;`)
+- **Classes/Methods/Properties**: `PascalCase`
+- **Private fields**: `_camelCase` (underscore prefix)
+- **Parameters/locals**: `camelCase`
+- **Async methods**: Suffix with `Async` (e.g., `CalculatePriceAsync`)
+- **Interfaces**: Prefix with `I` (e.g., `IPricingOrchestrator`)
+- **Permissions**: GCP-style `{domain}.{plural-resource}.{action}` as `public const string` in a `Permissions` static class
+  - Valid: `pricing.pricerequests.create`, `pricing.quotations.approve`
+  - Invalid: `pricing.request.create` (singular), `pricing.create` (missing resource)
+- **XML docs**: Required on ALL public methods and properties
+- **Nullable**: Enabled (`<Nullable>enable</Nullable>`). Use `?` explicitly
+- **Imports**: System first, then third-party, then local. Alphabetize within groups. Remove unused `using`
+- **Braces**: Allman style (new line) for methods and control structures. Expression-bodied for properties/accessors
+- **Indentation**: 4 spaces, LF line endings, UTF-8, trim trailing whitespace
 
-```csharp
-// Correct
-_logger.LogInformation("Processing pricing for FileId: {FileId}", request.FileId);
+### C# Patterns
+- **DI**: Constructor injection with `private readonly` fields
+- **Controllers**: `[ApiController]`, `[ApiVersion("1")]`, `[Route("pricing/v{version:apiVersion}")]`
+- **Logging**: `ILogger<T>` with structured placeholders (never interpolate): `_logger.LogInformation("Processing pricing for FileId: {FileId}", fileId)`
+- **Error handling**: Global exception middleware. Return `ProblemDetails` / `ErrorResponse` DTOs. Never expose stack traces
+- **JSON**: Check existing conventions in this service for naming policy
+- **Manual mapping**: Static extension methods (`ToDto()`, `ToEntity()`). AutoMapper is banned
+- **Validation**: `System.ComponentModel.DataAnnotations` on DTOs. FluentValidation is banned
 
-// Incorrect
-_logger.LogInformation($"Processing pricing for FileId: {request.FileId}");
-```
+## 4. Banned Libraries (Build Will Fail)
 
-### API Controllers
-- Decorate with `[ApiController]`, `[ApiVersion]`, and `[Route]`.
-- Return `ActionResult<T>`.
-- Use `ProducesResponseType` to document status codes.
-- Validate `ModelState` if necessary (though `[ApiController]` handles mostly automatically).
+| Banned | Use Instead |
+|--------|-------------|
+| AutoMapper | Manual mapping extensions |
+| FluentValidation | DataAnnotations or manual validation |
+| FluentAssertions | Standard xUnit `Assert.*` |
+| Swashbuckle/Swagger | Scalar (at `/pricing/scalar`) |
+| InMemoryDatabase (EF Core) | Testcontainers with real PostgreSQL |
 
-### Error Handling
-- Use `try-catch` blocks in higher-level components (Controllers/Consumers) to catch and log exceptions.
-- Return appropriate HTTP status codes (e.g., 400 for bad input, 500 for internal errors).
-- Use `ProblemDetails` format (implicit in `BadRequest(ModelState)` or similar).
+## 5. Testing Rules
 
-## 4. Testing Guidelines
-
-- **Unit Tests**: Test logic in isolation. Mock dependencies using `Moq`.
-- **Integration Tests**: Use `Testcontainers` for real infrastructure dependencies (Postgres, RabbitMQ, Redis).
-- **Naming**: `MethodName_StateUnderTest_ExpectedBehavior` (e.g., `CalculatePrice_InvalidInput_ThrowsException`).
+- **Framework**: xUnit with standard `Assert` (`Assert.Equal`, `Assert.NotNull`, etc.)
+- **Naming**: `MethodName_StateUnderTest_ExpectedBehavior` or `HTTP_METHOD_Path_Scenario_ExpectedStatus`
+- **Coverage**: Minimum 80% per service
+- **Integration tests**: `BaseIntegrationTestFactory<TProgram, TDbContext>` with Testcontainers (PostgreSQL, Redis, RabbitMQ). Never InMemoryDatabase
+- **System tests** (Tier 3): `AspireTestFixture` with `[Collection("AspireDomainTests")]` — shared AppHost, never one per class
+- **Eventual consistency**: Use `TestHelpers.WaitForAsync`. Never `Task.Delay`
+- **MassTransit consumers**: Must have consumer tests using `AddMassTransitTestHarness()`
 
 ### Testing Strategy (4-Tier Pyramid Context)
 
@@ -113,51 +116,34 @@ This service's tests cover **Tier 1 (Unit)** and **Tier 2 (Service Integration)*
 
 **Tier 3 (System Integration)** — cross-service workflows and event chains — is tested in `Maliev.Aspire.Tests/`.
 
-#### Key Rules
-- Use `BaseIntegrationTestFactory<TProgram, TDbContext>` for integration tests (real Testcontainers, never InMemoryDatabase)
-- Test naming: `MethodName_StateUnderTest_ExpectedBehavior`
-- Minimum 80% code coverage
-- Use `[Fact]` for single cases, `[Theory]` for parameterized tests
-
 > Full ecosystem test strategy: `Maliev.Aspire.Tests/TEST_PLAN.md`
 
-## 5. Agent Instructions
+## 6. Mandatory Rules
 
-1.  **Verification**: ALWAYS run `dotnet build` after making changes to ensure no compilation errors.
-2.  **Testing**: If modifying logic, run relevant existing tests. If adding features, add corresponding tests.
-3.  **Context**: Read `Directory.Build.props` and `.csproj` files to understand dependencies and build configurations before adding new packages.
-4.  **No Assumptions**: Do not assume global tools are installed. Use local `dotnet` CLI commands.
+- **`TreatWarningsAsErrors = true`**: Zero warnings allowed. No suppression
+- **`[RequirePermission("pricing.resources.action")]`**: On all endpoints, not plain `[Authorize]`
+- **API versioning**: All routes versioned (`v1/`)
+- **Service prefix**: Routes prefixed with service domain (`/pricing`)
+- **Scalar docs**: Configured at `/pricing/scalar`
+- **Secrets**: Never hardcoded. Use GCP Secret Manager or environment variables
+- **Async/await**: All the way down. Pass `CancellationToken`
+- **EF Core Design package**: Only in Infrastructure project, never in Api
+- **PostgreSQL xmin**: Shadow property only — `entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion()`. Never add entity property
+  - Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
+  - Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
+  - Never use `.Ignore(e => e.Xmin)` — remove the entity property instead
+- **Temporary files**: Generate in `/temp` folder, clean up afterwards
 
+## 7. Agent Instructions
 
-## Git & Version Control — Mandatory Rules
+1. **Verification**: ALWAYS run `dotnet build Maliev.PricingService.slnx` after making changes to ensure no compilation errors.
+2. **Testing**: If modifying logic, run relevant existing tests. If adding features, add corresponding tests.
+3. **Context**: Read `Directory.Build.props` and `.csproj` files to understand dependencies and build configurations before adding new packages.
+4. **No Assumptions**: Do not assume global tools are installed. Use local `dotnet` CLI commands.
 
-### 🚨 CRITICAL: Always Commit Code Changes (Non-Negotiable)
-- **You MUST commit your changes to the local repository after completing any meaningful unit of work.**
-- **Never accumulate uncommitted changes.** Do not wait until end of session or until something breaks.
-- **Commit early and often** — if a change is meaningful (even a small fix or refactor), commit it.
-- **You do NOT need to push to remote** — local commits are sufficient to protect against accidental loss.
-- **If you are unsure whether to commit, commit anyway.** Extra commits are harmless; lost work is irreversible.
-- This rule applies even if you are just "testing" or "exploring" — use git branches to isolate experimental work and commit those changes too.
+## Git Rules
 
-### 🚨 CRITICAL: Never Use `git checkout` to Restore Broken Files
-- **NEVER use `git checkout` to restore or recover files.** This operation discards uncommitted changes permanently and will result in data loss.
-- **To undo/recover from broken files: first commit your current changes, then use `git revert` or `git reset --soft` to safely undo.**
-
-## Database & EF Core — Mandatory Rules
-
-### EF Core Design Package
-- ❌ `Microsoft.EntityFrameworkCore.Design` MUST NOT be in Api projects
-- ✅ It belongs ONLY in the Infrastructure (or Data) project where migrations live
-- Migration commands must target Infrastructure as both project and startup-project (since EF Core Design package is in Infrastructure):
-  ```
-  dotnet ef migrations add <Name> --project Maliev.<Domain>Service.Infrastructure --startup-project Maliev.<Domain>Service.Infrastructure
-  ```
-
-### PostgreSQL xmin Concurrency — Mandatory Pattern
-Use shadow property ONLY. Never add a Xmin/xmin property to domain entities.
-```csharp
-entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
-```
-- ❌ Never use `UseXminAsConcurrencyToken()` (removed in Npgsql EF v7)
-- ❌ Never use entity property `public uint Xmin { get; set; }` or `public uint xmin { get; set; }`
-- ❌ Never use `.Ignore(e => e.Xmin)` — remove the entity property instead
+- Each `Maliev.*` folder is an independent git repo. Work within this directory for git commands
+- **Commit early and often** after every meaningful unit of work. Do not accumulate changes
+- **Never use `git checkout` to restore files** — commit first, then `git revert` or `git reset --soft`
+- Feature branches merged to `develop` via PR. Do not push without being asked
