@@ -7,9 +7,7 @@
       "launchBrowser": true,
       "launchUrl": "pricing/scalar",
       "applicationUrl": "http://localhost:5230",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      }
+      "environmentVariables": {}
     },
     "https": {
       "commandName": "Project",
@@ -17,9 +15,7 @@
       "launchBrowser": true,
       "launchUrl": "pricing/scalar",
       "applicationUrl": "https://localhost:7204;http://localhost:5230",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      }
+      "environmentVariables": {}
     }
   }
 }

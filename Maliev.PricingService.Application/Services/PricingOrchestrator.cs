@@ -83,7 +83,7 @@ public class PricingOrchestrator : IPricingOrchestrator
             .AsNoTracking()
             .FirstOrDefaultAsync(m => m.ProcessType == request.ManufacturingProcessName && m.IsActive, cancellationToken);
 
-        int estimatedLeadTimeDays = 5;
+        int estimatedLeadTimeDays;
         if (capacity is { AvgThroughputPartsPerDay: > 0, MachineCount: > 0 })
         {
             var partsPerDay = capacity.AvgThroughputPartsPerDay * capacity.MachineCount;
@@ -110,6 +110,18 @@ public class PricingOrchestrator : IPricingOrchestrator
             estimatedLeadTimeDays = (int)(productionDays + queueDays)
                                     + capacity.SetupTimeDays
                                     + capacity.ShippingBufferDays;
+        }
+        else
+        {
+            // No capacity config found — use conservative process-type defaults so that
+            // large quantities still produce proportionally longer estimates.
+            _logger.LogWarning(
+                "No MachineCapacityConfig found for process '{ProcessName}'. Using default throughput fallback.",
+                request.ManufacturingProcessName);
+
+            var defaultPartsPerDay = GetDefaultThroughput(request.ManufacturingProcessName);
+            var productionDays = (int)Math.Ceiling((double)request.Quantity / defaultPartsPerDay);
+            estimatedLeadTimeDays = Math.Max(productionDays + 2, 5); // +2 setup/shipping buffer, minimum 5
         }
 
         var now = DateTime.UtcNow;
@@ -242,5 +254,19 @@ public class PricingOrchestrator : IPricingOrchestrator
 
         await _context.SaveChangesAsync(cancellationToken);
         return result;
+    }
+
+    /// <summary>
+    /// Returns a conservative default parts-per-day throughput for the given process
+    /// when no MachineCapacityConfig row exists in the database.
+    /// </summary>
+    private static double GetDefaultThroughput(string processName)
+    {
+        var name = processName.ToUpperInvariant();
+        if (name.Contains("FDM") || name.Contains("FFF")) return 8.0;
+        if (name.Contains("SLA") || name.Contains("MSLA") || name.Contains("DLP")) return 4.0;
+        if (name.Contains("SLS") || name.Contains("MJF")) return 20.0;
+        if (name.Contains("CNC")) return 3.0;
+        return 5.0; // generic fallback
     }
 }

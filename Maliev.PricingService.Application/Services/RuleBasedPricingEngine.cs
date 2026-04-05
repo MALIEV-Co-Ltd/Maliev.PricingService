@@ -25,9 +25,30 @@ public class RuleBasedPricingEngine : IPricingEngine
             { "DLP", new SlaPricingCalculator() },
             { "3D Printing (SLA)", new SlaPricingCalculator() },
             { "3D Printing (SLA/DLP)", new SlaPricingCalculator() },
-            // CNC
+            // CNC (legacy)
             { "CNC", new CncPricingCalculator() },
             { "CNC Machining", new CncPricingCalculator() },
+            // CNC Milling
+            { "CNC_MILL", new CncMillPricingCalculator() },
+            { "CNC Milling", new CncMillPricingCalculator() },
+            // CNC Turning
+            { "CNC_TURN", new CncTurnPricingCalculator() },
+            { "CNC Turning", new CncTurnPricingCalculator() },
+            // SLS
+            { "SLS", new SlsPricingCalculator() },
+            { "3D Printing (SLS)", new SlsPricingCalculator() },
+            // MJF
+            { "MJF", new MjfPricingCalculator() },
+            { "3D Printing (MJF)", new MjfPricingCalculator() },
+            // Material Jetting
+            { "MJ", new MjPricingCalculator() },
+            { "3D Printing (Material Jetting)", new MjPricingCalculator() },
+            // Binder Jetting
+            { "BJ", new BjPricingCalculator() },
+            { "3D Printing (Binder Jetting)", new BjPricingCalculator() },
+            // DMLS
+            { "DMLS", new DmlsPricingCalculator() },
+            { "3D Printing (DMLS)", new DmlsPricingCalculator() },
             // Sheet Metal
             { "Sheet Metal", new CncPricingCalculator() },
             { "Sheet Metal Fabrication", new CncPricingCalculator() },

@@ -145,9 +145,9 @@ public class SlaPricingCalculator : IPricingCalculator
 
 public class CncPricingCalculator : IPricingCalculator
 {
-    public string TechnologyName => "CNC";
+    public virtual string TechnologyName => "CNC";
 
-    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+    public virtual decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
         decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
         decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
         decimal marginMultiplier, DfmMetrics? dfm,
@@ -209,6 +209,248 @@ public class CncPricingCalculator : IPricingCalculator
         decimal totalWithMargin = totalWithDfm * marginMultiplier;
 
         return Math.Max(totalWithMargin, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// CNC Milling pricing — same material-removal model as legacy CNC but registered under the CNC_MILL process code.
+/// </summary>
+public class CncMillPricingCalculator : CncPricingCalculator
+{
+    public override string TechnologyName => "CNC_MILL";
+}
+
+/// <summary>
+/// CNC Turning pricing — lower MRR multiplier than milling; turning is a continuous cut so effective
+/// chip-removal rates are higher but the geometry complexity surcharge is reduced.
+/// </summary>
+public class CncTurnPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "CNC_TURN";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        decimal blockVolume = boundingBoxX * boundingBoxY * boundingBoxZ;
+        decimal removalVolume = Math.Max(0, blockVolume - volumeCm3);
+
+        // Turning MRR is typically 1.5–3× milling for the same material
+        decimal mrr = 80m;
+        if (processParameters.TryGetValue("MRR", out var mrrStr) && decimal.TryParse(mrrStr, out var parsedMrr))
+            mrr = parsedMrr;
+
+        decimal machinabilityRating = 1.0m;
+        if (processParameters.TryGetValue("MachinabilityRating", out var machRatingStr) && decimal.TryParse(machRatingStr, out var parsedRating))
+            machinabilityRating = parsedRating;
+
+        decimal machiningTimeHours = removalVolume / (mrr * machinabilityRating);
+
+        decimal blockMaterialCost = blockVolume * materialCostPerCm3;
+        decimal machineCost = machiningTimeHours * machineHourlyRate;
+        decimal baseTotal = blockMaterialCost + machineCost + setupFee;
+
+        decimal dfmSurchargePercent = 0m;
+        if (dfm != null)
+        {
+            if (dfm.SharpCornerCount > 0)
+                dfmSurchargePercent += Math.Min(dfm.SharpCornerCount * 2m, 15m);
+            if (dfm.HasUndercuts)
+                dfmSurchargePercent += 20m;
+        }
+
+        decimal totalWithDfm = baseTotal * (1 + dfmSurchargePercent / 100m);
+        return Math.Max(totalWithDfm * marginMultiplier, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// SLS pricing — powder-bed material cost from part volume × density, machine time from build height.
+/// Refresh powder usage (unsintered powder) adds ~15% material overhead.
+/// </summary>
+public class SlsPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "SLS";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        // SLS: no support material, but ~15% powder refresh overhead
+        decimal materialCost = volumeCm3 * materialCostPerCm3 * 1.15m;
+
+        decimal layerHeightMm = 0.1m;
+        if (processParameters.TryGetValue("LayerHeight", out var lhStr) && decimal.TryParse(lhStr, out var lhParsed) && lhParsed > 0)
+            layerHeightMm = lhParsed;
+
+        decimal totalLayers = boundingBoxZ > 0 ? boundingBoxZ / layerHeightMm : 1000;
+        decimal secondsPerLayer = 30m;
+        if (processParameters.TryGetValue("SecondsPerLayer", out var splStr) && decimal.TryParse(splStr, out var splParsed))
+            secondsPerLayer = splParsed;
+
+        decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
+        decimal machineCost = printTimeHours * machineHourlyRate;
+        decimal baseTotal = materialCost + machineCost + setupFee;
+
+        return Math.Max(baseTotal * marginMultiplier, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// MJF pricing — similar to SLS (powder bed) but slightly faster scan times and fusing agent adds to material cost.
+/// </summary>
+public class MjfPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "MJF";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        // MJF: fusing + detailing agent adds ~20% over powder cost
+        decimal materialCost = volumeCm3 * materialCostPerCm3 * 1.20m;
+
+        decimal layerHeightMm = 0.08m;
+        if (processParameters.TryGetValue("LayerHeight", out var lhStr) && decimal.TryParse(lhStr, out var lhParsed) && lhParsed > 0)
+            layerHeightMm = lhParsed;
+
+        decimal totalLayers = boundingBoxZ > 0 ? boundingBoxZ / layerHeightMm : 1250;
+        // MJF is faster per layer than SLS (~20s per layer for standard build)
+        decimal secondsPerLayer = 20m;
+        if (processParameters.TryGetValue("SecondsPerLayer", out var splStr) && decimal.TryParse(splStr, out var splParsed))
+            secondsPerLayer = splParsed;
+
+        decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
+        decimal machineCost = printTimeHours * machineHourlyRate;
+        decimal baseTotal = materialCost + machineCost + setupFee;
+
+        return Math.Max(baseTotal * marginMultiplier, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// Material Jetting (PolyJet) pricing — very fine layers (14–30 μm), wax support material cost separate.
+/// Exposure time is fast due to full-width inkjet array.
+/// </summary>
+public class MjPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "MJ";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        decimal materialCost = volumeCm3 * materialCostPerCm3;
+        if (processParameters.TryGetValue("SupportMaterialPricePerCm3", out var supportCostStr) && decimal.TryParse(supportCostStr, out var supportCost))
+            materialCost += supportVolumeCm3 * supportCost;
+        else
+            materialCost += supportVolumeCm3 * materialCostPerCm3 * 0.5m;
+
+        decimal layerHeightMm = 0.016m;
+        if (processParameters.TryGetValue("LayerHeight", out var lhStr) && decimal.TryParse(lhStr, out var lhParsed) && lhParsed > 0)
+            layerHeightMm = lhParsed;
+
+        decimal totalLayers = boundingBoxZ > 0 ? boundingBoxZ / layerHeightMm : 6250;
+        // Full-width inkjet array: ~8s per layer regardless of cross-section area
+        decimal secondsPerLayer = 8m;
+        if (processParameters.TryGetValue("SecondsPerLayer", out var splStr) && decimal.TryParse(splStr, out var splParsed))
+            secondsPerLayer = splParsed;
+
+        decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
+        decimal machineCost = printTimeHours * machineHourlyRate;
+        decimal baseTotal = materialCost + machineCost + setupFee;
+
+        return Math.Max(baseTotal * marginMultiplier, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// Binder Jetting pricing — material cost from part volume; sintering post-process adds significant cost.
+/// Sand casting binder jetting uses a flat multiplier for mold cost.
+/// </summary>
+public class BjPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "BJ";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        decimal materialCost = volumeCm3 * materialCostPerCm3;
+
+        decimal layerHeightMm = 0.05m;
+        if (processParameters.TryGetValue("LayerHeight", out var lhStr) && decimal.TryParse(lhStr, out var lhParsed) && lhParsed > 0)
+            layerHeightMm = lhParsed;
+
+        decimal totalLayers = boundingBoxZ > 0 ? boundingBoxZ / layerHeightMm : 2000;
+        decimal secondsPerLayer = 15m;
+        if (processParameters.TryGetValue("SecondsPerLayer", out var splStr) && decimal.TryParse(splStr, out var splParsed))
+            secondsPerLayer = splParsed;
+
+        decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
+        decimal machineCost = printTimeHours * machineHourlyRate;
+
+        // Sintering/infiltration adds ~35% post-processing cost
+        decimal sinteringCost = (materialCost + machineCost) * 0.35m;
+        decimal baseTotal = materialCost + machineCost + sinteringCost + setupFee;
+
+        return Math.Max(baseTotal * marginMultiplier, minimumOrderPrice);
+    }
+}
+
+/// <summary>
+/// DMLS pricing — metal powder cost from part volume; high machine rate for laser sintering.
+/// DFM surcharge for support-heavy geometries (supports are difficult to remove in metal).
+/// </summary>
+public class DmlsPricingCalculator : IPricingCalculator
+{
+    public string TechnologyName => "DMLS";
+
+    public decimal Calculate(decimal volumeCm3, decimal supportVolumeCm3, decimal surfaceAreaCm2,
+        decimal boundingBoxX, decimal boundingBoxY, decimal boundingBoxZ,
+        decimal materialCostPerCm3, decimal machineHourlyRate, decimal setupFee, decimal minimumOrderPrice,
+        decimal marginMultiplier, DfmMetrics? dfm,
+        Dictionary<string, string> processParameters)
+    {
+        // Supports in DMLS are solid metal — they cost as much as the part itself
+        decimal materialCost = (volumeCm3 + supportVolumeCm3) * materialCostPerCm3;
+
+        decimal layerHeightMm = 0.04m;
+        if (processParameters.TryGetValue("LayerHeight", out var lhStr) && decimal.TryParse(lhStr, out var lhParsed) && lhParsed > 0)
+            layerHeightMm = lhParsed;
+
+        decimal totalLayers = boundingBoxZ > 0 ? boundingBoxZ / layerHeightMm : 2500;
+        // DMLS scan time depends on cross-section; approximate 60s per layer
+        decimal secondsPerLayer = 60m;
+        if (processParameters.TryGetValue("SecondsPerLayer", out var splStr) && decimal.TryParse(splStr, out var splParsed))
+            secondsPerLayer = splParsed;
+
+        decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
+        decimal machineCost = printTimeHours * machineHourlyRate;
+        decimal baseTotal = materialCost + machineCost + setupFee;
+
+        decimal dfmSurchargePercent = 0m;
+        if (dfm != null)
+        {
+            // Overhangs requiring supports are expensive in DMLS
+            if (dfm.SupportRequired)
+                dfmSurchargePercent += 20m;
+            if (dfm.ThinWallCount > 0)
+                dfmSurchargePercent += Math.Min(dfm.ThinWallCount * 3m, 15m);
+        }
+
+        decimal totalWithDfm = baseTotal * (1 + dfmSurchargePercent / 100m);
+        return Math.Max(totalWithDfm * marginMultiplier, minimumOrderPrice);
     }
 }
 
