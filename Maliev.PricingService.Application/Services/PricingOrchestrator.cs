@@ -79,9 +79,10 @@ public class PricingOrchestrator : IPricingOrchestrator
 
         var ruleResult = await _ruleEngine.CalculateAsync(request, config, cancellationToken);
 
+        var processCode = NormalizeProcessCode(request.ManufacturingProcessName);
         var capacity = await _context.MachineCapacityConfigs
             .AsNoTracking()
-            .FirstOrDefaultAsync(m => m.ProcessType == request.ManufacturingProcessName && m.IsActive, cancellationToken);
+            .FirstOrDefaultAsync(m => m.ProcessType == processCode && m.IsActive, cancellationToken);
 
         int estimatedLeadTimeDays;
         if (capacity is { AvgThroughputPartsPerDay: > 0, MachineCount: > 0 })
@@ -268,5 +269,25 @@ public class PricingOrchestrator : IPricingOrchestrator
         if (name.Contains("SLS") || name.Contains("MJF")) return 20.0;
         if (name.Contains("CNC")) return 3.0;
         return 5.0; // generic fallback
+    }
+
+    /// <summary>
+    /// Normalizes a display name (e.g. "3D Printing (FDM)") to the canonical process code
+    /// used in MachineCapacityConfig (e.g. "FDM").
+    /// </summary>
+    private static string NormalizeProcessCode(string processName)
+    {
+        var name = processName.ToUpperInvariant();
+        if (name.Contains("FDM") || name.Contains("FFF")) return "FDM";
+        if (name.Contains("SLA") || name.Contains("MSLA") || name.Contains("DLP")) return "SLA";
+        if (name.Contains("CNC_MILL") || name.Contains("CNC MILL")) return "CNC_MILL";
+        if (name.Contains("CNC_TURN") || name.Contains("CNC TURN")) return "CNC_TURN";
+        if (name.Contains("CNC")) return "CNC";
+        if (name.Contains("SLS")) return "SLS";
+        if (name.Contains("MJF")) return "MJF";
+        if (name == "MJ" || name.Contains("MATERIAL JETTING")) return "MJ";
+        if (name.Contains("BJ") || name.Contains("BINDER JETTING")) return "BJ";
+        if (name.Contains("DMLS") || name.Contains("DMLS")) return "DMLS";
+        return processName;
     }
 }
