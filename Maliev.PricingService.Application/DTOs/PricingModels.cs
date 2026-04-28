@@ -14,6 +14,7 @@ public record PricingRequest
     public DfmMetrics? Dfm { get; init; }
     public Guid? CorrelationId { get; init; }
     public string? StoragePath { get; init; }
+    public string? LeadTimeCode { get; init; }
 }
 
 public record GeometryMetrics

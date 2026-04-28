@@ -79,6 +79,25 @@ public class PricingOrchestrator : IPricingOrchestrator
 
         var ruleResult = await _ruleEngine.CalculateAsync(request, config, cancellationToken);
 
+        // Apply lead time multiplier (e.g. Economy < 1.0, Standard = 1.0, Express > 1.0).
+        decimal leadTimeMultiplier = 1.0m;
+        if (!string.IsNullOrEmpty(request.LeadTimeCode))
+        {
+            var ltOption = await _context.LeadTimeOptions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(lt => lt.Code == request.LeadTimeCode, cancellationToken);
+            if (ltOption is not null)
+            {
+                leadTimeMultiplier = ltOption.PriceMultiplier;
+                _logger.LogDebug(
+                    "Applied lead time multiplier {Multiplier} for code {Code}",
+                    leadTimeMultiplier, request.LeadTimeCode);
+            }
+        }
+
+        var adjustedUnitPrice = ruleResult.UnitPrice * leadTimeMultiplier;
+        var adjustedTotal = adjustedUnitPrice * request.Quantity;
+
         var processCode = NormalizeProcessCode(request.ManufacturingProcessName);
         var capacity = await _context.MachineCapacityConfigs
             .AsNoTracking()
@@ -151,8 +170,8 @@ public class PricingOrchestrator : IPricingOrchestrator
             ConfigMarginMultiplier = config.MarginMultiplier,
             Strategy = PricingStrategy.RuleBased,
             MLModelVersion = null,
-            TotalUnitPrice = ruleResult.UnitPrice,
-            TotalPrice = ruleResult.TotalAmount,
+            TotalUnitPrice = adjustedUnitPrice,
+            TotalPrice = adjustedTotal,
             ConfidenceLevel = ruleResult.ConfidenceScore,
             CurrencyCode = request.Currency,
             ValidFrom = now,
@@ -170,7 +189,7 @@ public class PricingOrchestrator : IPricingOrchestrator
             OrderId = "TEMP",
             EmployeeId = "SYSTEM",
             MaterialCode = request.MaterialCode,
-            CalculatedPrice = ruleResult.TotalAmount,
+            CalculatedPrice = adjustedTotal,
             PricingAuditRecordId = auditRecord.Id,
             CreatedAt = now
         });
@@ -213,10 +232,10 @@ public class PricingOrchestrator : IPricingOrchestrator
                         ComplexitySurcharge: 0,
                         SubtotalBeforeMargin: 0,
                         MarginAmount: 0,
-                        TotalPrice: (double)ruleResult.TotalAmount
+                        TotalPrice: (double)adjustedTotal
                     ),
-                    TotalUnitPrice: (double)ruleResult.UnitPrice,
-                    TotalPrice: (double)ruleResult.TotalAmount,
+                    TotalUnitPrice: (double)adjustedUnitPrice,
+                    TotalPrice: (double)adjustedTotal,
                     Currency: request.Currency,
                     ValidUntil: new DateTimeOffset(auditRecord.ValidUntil, TimeSpan.Zero),
                     CalculatedAt: DateTimeOffset.UtcNow,
@@ -234,6 +253,8 @@ public class PricingOrchestrator : IPricingOrchestrator
 
         return ruleResult with
         {
+            UnitPrice = adjustedUnitPrice,
+            TotalAmount = adjustedTotal,
             AuditId = auditRecord.Id,
             EstimatedLeadTimeDays = estimatedLeadTimeDays
         };
