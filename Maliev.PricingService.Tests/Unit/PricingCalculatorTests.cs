@@ -192,18 +192,20 @@ public class SlaPricingCalculatorTests
     public void Calculate_WithCustomLayerExposure_UsesCustomValue()
     {
         var parameters = new Dictionary<string, string> { { "LayerExposure", "5.0" } };
-        
+
+        // volumeCm3=200, boundingBoxZ=20 → 400 layers × (5+3)s = 3200s ≈ 0.889h print time
+        // machineCost ≈ 133, materialCost = 400, total × 1.5 ≈ 800 — well above minimum
         var result = _calculator.Calculate(
-            volumeCm3: 50m,
+            volumeCm3: 200m,
             supportVolumeCm3: 0m,
             surfaceAreaCm2: 100m,
             boundingBoxX: 10m,
             boundingBoxY: 10m,
-            boundingBoxZ: 5m,
+            boundingBoxZ: 20m,
             materialCostPerCm3: 2.0m,
             machineHourlyRate: 150m,
             setupFee: 0m,
-            minimumOrderPrice: 500m,
+            minimumOrderPrice: 0m,
             marginMultiplier: DefaultMarginMultiplier,
             dfm: null,
             processParameters: parameters);

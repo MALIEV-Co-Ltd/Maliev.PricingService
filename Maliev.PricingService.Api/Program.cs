@@ -73,6 +73,9 @@ try
     builder.AddIAMServiceClient("pricing");
     builder.Services.AddIAMRegistration<PricingIAMRegistrationService>("pricing");
 
+    // Service-to-service client — uses ServiceAccountAuthenticationHandler for JWT
+    builder.AddAuthenticatedServiceClient<IJobServiceClient, JobServiceClient>("JobService");
+
     builder.Services.AddControllers();
 
     var app = builder.Build();
