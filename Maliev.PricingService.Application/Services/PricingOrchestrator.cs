@@ -95,7 +95,17 @@ public class PricingOrchestrator : IPricingOrchestrator
             }
         }
 
-        var adjustedUnitPrice = ruleResult.UnitPrice * leadTimeMultiplier;
+        // Apply tolerance multiplier (e.g. IT6=60% → ×1.60, ISO2768_M=10% → ×1.10).
+        decimal toleranceMultiplier = 1.0m;
+        if (request.ToleranceAdditionalCostPercent is > 0m)
+        {
+            toleranceMultiplier = 1m + request.ToleranceAdditionalCostPercent.Value / 100m;
+            _logger.LogDebug(
+                "Applied tolerance multiplier {Multiplier} for code {Code}",
+                toleranceMultiplier, request.ToleranceCode);
+        }
+
+        var adjustedUnitPrice = ruleResult.UnitPrice * leadTimeMultiplier * toleranceMultiplier;
         var adjustedTotal = adjustedUnitPrice * request.Quantity;
 
         var processCode = NormalizeProcessCode(request.ManufacturingProcessName);

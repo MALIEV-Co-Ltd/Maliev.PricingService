@@ -15,6 +15,8 @@ public record PricingRequest
     public Guid? CorrelationId { get; init; }
     public string? StoragePath { get; init; }
     public string? LeadTimeCode { get; init; }
+    public string? ToleranceCode { get; init; }
+    public decimal? ToleranceAdditionalCostPercent { get; init; }
 }
 
 public record GeometryMetrics
