@@ -51,10 +51,9 @@ try
     builder.Services.AddInfrastructure(builder.Configuration);
 
     // External Client Registrations
-    builder.Services.AddHttpClient<IMaterialServiceClient, MaterialServiceClient>(client =>
-    {
-        client.BaseAddress = new Uri(builder.Configuration["ExternalServices:MaterialService"] ?? "http://material-service");
-    }).AddStandardResilienceHandler();
+    builder.AddAuthenticatedServiceClient<IMaterialServiceClient, MaterialServiceClient>(
+        "MaterialService",
+        sourceServiceName: "pricing");
 
     builder.Services.AddHttpClient<ICurrencyServiceClient, CurrencyServiceClient>(client =>
     {

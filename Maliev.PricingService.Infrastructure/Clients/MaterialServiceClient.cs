@@ -25,7 +25,7 @@ public class MaterialServiceClient : IMaterialServiceClient
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/v1/materials/{materialId}", cancellationToken);
+            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/material/v1/materials/{materialId}", cancellationToken);
         }
         catch (Exception ex)
         {
@@ -38,7 +38,7 @@ public class MaterialServiceClient : IMaterialServiceClient
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<ManufacturingProcessDto>($"/v1/processes/{processId}", cancellationToken);
+            return await _httpClient.GetFromJsonAsync<ManufacturingProcessDto>($"/material/v1/reference/processes/{processId}", cancellationToken);
         }
         catch (Exception ex)
         {
@@ -51,7 +51,7 @@ public class MaterialServiceClient : IMaterialServiceClient
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/v1/materials/default/{processType}", cancellationToken);
+            return await _httpClient.GetFromJsonAsync<MaterialDto>($"/material/v1/materials/default/{processType}", cancellationToken);
         }
         catch (Exception ex)
         {
