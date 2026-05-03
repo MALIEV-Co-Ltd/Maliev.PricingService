@@ -76,15 +76,15 @@ public class RuleBasedPricingEngine : IPricingEngine
             dict["SupportMaterialPricePerCm3"] = config.SupportMaterialPricePerCm3.ToString("G");
 
         // ── Request-sourced parameters (process-specific nullable extensions) ──
-        if (request.WeldLengthMm.HasValue)      dict["WeldLengthMm"]       = request.WeldLengthMm.Value.ToString();
-        if (request.CutLengthMm.HasValue)       dict["CutLengthMm"]        = request.CutLengthMm.Value.ToString();
-        if (request.BendCount.HasValue)         dict["BendCount"]           = request.BendCount.Value.ToString();
-        if (request.ElectrodeCount.HasValue)    dict["ElectrodeCount"]      = request.ElectrodeCount.Value.ToString();
+        if (request.WeldLengthMm.HasValue) dict["WeldLengthMm"] = request.WeldLengthMm.Value.ToString();
+        if (request.CutLengthMm.HasValue) dict["CutLengthMm"] = request.CutLengthMm.Value.ToString();
+        if (request.BendCount.HasValue) dict["BendCount"] = request.BendCount.Value.ToString();
+        if (request.ElectrodeCount.HasValue) dict["ElectrodeCount"] = request.ElectrodeCount.Value.ToString();
         if (request.PointCountThousands.HasValue) dict["PointCountThousands"] = request.PointCountThousands.Value.ToString();
-        if (request.LayerCount.HasValue)        dict["LayerCount"]          = request.LayerCount.Value.ToString();
-        if (request.WeightKg.HasValue)          dict["WeightKg"]            = request.WeightKg.Value.ToString("G");
-        if (request.ThicknessMm.HasValue)       dict["ThicknessMm"]         = request.ThicknessMm.Value.ToString("G");
-        if (request.VendorQuoteAmount.HasValue) dict["VendorQuoteAmount"]   = request.VendorQuoteAmount.Value.ToString("G");
+        if (request.LayerCount.HasValue) dict["LayerCount"] = request.LayerCount.Value.ToString();
+        if (request.WeightKg.HasValue) dict["WeightKg"] = request.WeightKg.Value.ToString("G");
+        if (request.ThicknessMm.HasValue) dict["ThicknessMm"] = request.ThicknessMm.Value.ToString("G");
+        if (request.VendorQuoteAmount.HasValue) dict["VendorQuoteAmount"] = request.VendorQuoteAmount.Value.ToString("G");
         if (request.VendorQuoteCurrency != null) dict["VendorQuoteCurrency"] = request.VendorQuoteCurrency;
         if (request.VendorQuoteMarkupOverride.HasValue) dict["VendorQuoteMarkupOverride"] = request.VendorQuoteMarkupOverride.Value.ToString("G");
 
