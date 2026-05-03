@@ -4,9 +4,11 @@ namespace Maliev.PricingService.Tests.Unit;
 
 /// <summary>
 /// Verifies that the tolerance AdditionalCostPercent multiplier produces the correct
-/// price ratios. The multiplier is applied in PricingOrchestrator.CalculatePriceAsync
-/// as: adjustedUnitPrice = ruleResult.UnitPrice * leadTimeMultiplier * toleranceMultiplier
-/// where toleranceMultiplier = 1 + (ToleranceAdditionalCostPercent / 100).
+/// price ratios. In PricingOrchestrator.CalculatePriceAsync the surcharges are applied as:
+///   surchargedUnitPrice = marginedUnitPrice * leadTimeMultiplier * toleranceMultiplier
+/// where toleranceMultiplier = 1 + (ToleranceAdditionalCostPercent / 100)
+/// and marginedUnitPrice = breakdown.SubtotalBeforeMargin * config.MarginMultiplier.
+/// The helper below treats the input <c>unitPrice</c> as the already-margined unit price.
 /// </summary>
 public class ToleranceMultiplierTests
 {

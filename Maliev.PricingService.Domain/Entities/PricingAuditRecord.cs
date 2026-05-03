@@ -211,6 +211,28 @@ public class PricingAuditRecord
     public decimal MarginAmount { get; set; }
 
     /// <summary>
+    /// Volume discount tier applied, if any.
+    /// </summary>
+    public Guid? VolumeDiscountTierId { get; set; }
+
+    /// <summary>
+    /// Volume discount percentage applied (e.g. 10.0 = 10% off).
+    /// </summary>
+    [Range(0, 100)]
+    public decimal VolumeDiscountPercent { get; set; }
+
+    /// <summary>
+    /// Absolute discount amount (marginedUnitPrice × discountPct / 100).
+    /// </summary>
+    [Range(0, 100000000)]
+    public decimal VolumeDiscountAmount { get; set; }
+
+    /// <summary>
+    /// Exchange rate used to convert from THB to the customer's currency (1.0 for THB orders).
+    /// </summary>
+    public decimal ExchangeRate { get; set; } = 1.0m;
+
+    /// <summary>
     /// Final price per unit.
     /// </summary>
     [Range(0, 100000000)]

@@ -7,6 +7,7 @@ using Maliev.PricingService.Infrastructure;
 using Maliev.PricingService.Infrastructure.Data.SeedData;
 using Maliev.PricingService.Infrastructure.Persistence;
 using Maliev.PricingService.Infrastructure.Clients;
+using Maliev.PricingService.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 // Initialize bootstrap logging
@@ -74,6 +75,9 @@ try
 
     // Service-to-service client — uses ServiceAccountAuthenticationHandler for JWT
     builder.AddAuthenticatedServiceClient<IJobServiceClient, JobServiceClient>("JobService");
+
+    // Background workers
+    builder.Services.AddHostedService<MaterialDensitySyncWorker>();
 
     builder.Services.AddControllers();
 

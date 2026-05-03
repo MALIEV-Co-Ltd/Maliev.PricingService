@@ -180,6 +180,9 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                     b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("ExchangeRate")
+                        .HasColumnType("numeric");
+
                     b.Property<Guid>("FileId")
                         .HasColumnType("uuid");
 
@@ -280,6 +283,15 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                     b.Property<DateTime>("ValidUntil")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal>("VolumeDiscountAmount")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("VolumeDiscountPercent")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid?>("VolumeDiscountTierId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PricingConfigurationId");
@@ -306,6 +318,9 @@ namespace Maliev.PricingService.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<decimal?>("DensityGramPerCm3")
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime>("EffectiveFrom")
                         .HasColumnType("timestamp with time zone");

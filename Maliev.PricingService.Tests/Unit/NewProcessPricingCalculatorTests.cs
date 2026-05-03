@@ -11,54 +11,75 @@ namespace Maliev.PricingService.Tests.Unit;
 public class CncMillPricingCalculatorTests
 {
     private readonly CncMillPricingCalculator _calculator = new();
-    private const decimal Margin = 1.5m;
+
+    private static PricingContext Ctx(
+        decimal volume = 50m, decimal setup = 500m, decimal minOrder = 2500m,
+        DfmMetrics? dfm = null, Dictionary<string, string>? p = null)
+        => new(
+            new GeometryMetrics
+            {
+                // BoundingBox in mm: 40×40×40 mm = 64 cm³ block, part volume 50 cm³ → 14 cm³ removal
+                VolumeCm3 = volume, SurfaceAreaCm2 = 100m,
+                BoundingBoxX = 40m, BoundingBoxY = 40m, BoundingBoxZ = 40m
+            },
+            MaterialPricePerCm3: 5.0m,
+            MachineHourlyRate: 500m,
+            SetupFee: setup,
+            MinimumOrderPrice: minOrder,
+            Dfm: dfm,
+            ProcessParameters: p ?? new Dictionary<string, string>());
 
     [Fact]
     public void TechnologyName_IsCncMill()
         => Assert.Equal("CNC_MILL", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            50m, 0m, 100m, 10m, 10m, 5m,
-            5.0m, 500m, 500m, 2500m, Margin, null, []);
+        var result = _calculator.Calculate(Ctx());
 
-        Assert.True(result >= 2500m);
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_EmptyGeometry_ReturnsMinimumOrderPrice()
+    public void Calculate_EmptyGeometry_PreservesFloor()
     {
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            5.0m, 500m, 0m, 2500m, Margin, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            5.0m, 500m, 0m, 2500m, null,
+            new Dictionary<string, string>());
 
-        Assert.Equal(2500m, result);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_WithDfmSharpCorners_AppliesSurcharge()
     {
-        var dfmClean   = new DfmMetrics { SharpCornerCount = 0 };
-        var dfmCorners = new DfmMetrics { SharpCornerCount = 5 };
+        var clean = Ctx(dfm: new DfmMetrics { SharpCornerCount = 0 }, setup: 0m, minOrder: 0m);
+        var corners = Ctx(dfm: new DfmMetrics { SharpCornerCount = 5 }, setup: 0m, minOrder: 0m);
 
-        var withoutCorners = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m, 5.0m, 500m, 0m, 0m, 1.0m, dfmClean, []);
-        var withCorners    = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m, 5.0m, 500m, 0m, 0m, 1.0m, dfmCorners, []);
+        var without = _calculator.Calculate(clean);
+        var with = _calculator.Calculate(corners);
 
-        Assert.True(withCorners > withoutCorners);
+        Assert.True(with.DfmSurcharge > without.DfmSurcharge);
     }
 
     [Fact]
     public void Calculate_WithDfmUndercuts_AppliesUndercutSurcharge()
     {
-        var dfmClean    = new DfmMetrics { HasUndercuts = false };
-        var dfmUndercut = new DfmMetrics { HasUndercuts = true };
+        var clean = Ctx(dfm: new DfmMetrics { HasUndercuts = false }, setup: 0m, minOrder: 0m);
+        var undercut = Ctx(dfm: new DfmMetrics { HasUndercuts = true }, setup: 0m, minOrder: 0m);
 
-        var without = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m, 5.0m, 500m, 0m, 0m, 1.0m, dfmClean, []);
-        var with    = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m, 5.0m, 500m, 0m, 0m, 1.0m, dfmUndercut, []);
+        var without = _calculator.Calculate(clean);
+        var with = _calculator.Calculate(undercut);
 
-        Assert.True(with > without);
+        Assert.True(with.DfmSurcharge > without.DfmSurcharge);
     }
 }
 
@@ -67,55 +88,70 @@ public class CncMillPricingCalculatorTests
 public class CncTurnPricingCalculatorTests
 {
     private readonly CncTurnPricingCalculator _calculator = new();
-    private const decimal Margin = 1.5m;
+
+    private static PricingContext Ctx(
+        decimal volume = 40m, decimal setup = 500m, decimal minOrder = 2500m,
+        DfmMetrics? dfm = null, Dictionary<string, string>? p = null)
+        => new(
+            new GeometryMetrics
+            {
+                // BoundingBox in mm: 40×40×40 mm = 64 cm³ block, part volume 40 cm³ → 24 cm³ removal
+                VolumeCm3 = volume, SurfaceAreaCm2 = 80m,
+                BoundingBoxX = 40m, BoundingBoxY = 40m, BoundingBoxZ = 40m
+            },
+            MaterialPricePerCm3: 5.0m,
+            MachineHourlyRate: 500m,
+            SetupFee: setup,
+            MinimumOrderPrice: minOrder,
+            Dfm: dfm,
+            ProcessParameters: p ?? new Dictionary<string, string>());
 
     [Fact]
     public void TechnologyName_IsCncTurn()
         => Assert.Equal("CNC_TURN", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            40m, 0m, 80m, 5m, 5m, 10m,
-            5.0m, 500m, 500m, 2500m, Margin, null, []);
+        var result = _calculator.Calculate(Ctx());
 
-        Assert.True(result >= 2500m);
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_EmptyGeometry_ReturnsMinimumOrderPrice()
+    public void Calculate_EmptyGeometry_PreservesFloor()
     {
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            5.0m, 500m, 0m, 2500m, Margin, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            5.0m, 500m, 0m, 2500m, null,
+            new Dictionary<string, string>());
 
-        Assert.Equal(2500m, result);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_WithUndercuts_AppliesUndercutSurcharge()
     {
-        var dfmClean    = new DfmMetrics { HasUndercuts = false };
-        var dfmUndercut = new DfmMetrics { HasUndercuts = true };
+        var without = _calculator.Calculate(Ctx(dfm: new DfmMetrics { HasUndercuts = false }, setup: 0m, minOrder: 0m));
+        var with = _calculator.Calculate(Ctx(dfm: new DfmMetrics { HasUndercuts = true }, setup: 0m, minOrder: 0m));
 
-        var without = _calculator.Calculate(40m, 0m, 80m, 5m, 5m, 10m, 5.0m, 500m, 0m, 0m, 1.0m, dfmClean, []);
-        var with    = _calculator.Calculate(40m, 0m, 80m, 5m, 5m, 10m, 5.0m, 500m, 0m, 0m, 1.0m, dfmUndercut, []);
-
-        Assert.True(with > without);
+        Assert.True(with.DfmSurcharge > without.DfmSurcharge);
     }
 
     [Fact]
-    public void Calculate_CustomMrr_UsesCustomValue()
+    public void Calculate_CustomMrr_AffectsMachineCost()
     {
-        var defaultResult = _calculator.Calculate(
-            40m, 0m, 80m, 5m, 5m, 10m, 5.0m, 500m, 0m, 0m, 1.0m, null, []);
-        var slowMrr = _calculator.Calculate(
-            40m, 0m, 80m, 5m, 5m, 10m, 5.0m, 500m, 0m, 0m, 1.0m, null,
-            new Dictionary<string, string> { ["MRR"] = "20" });
+        var defaultResult = _calculator.Calculate(Ctx(setup: 0m, minOrder: 0m));
+        var slowMrr = _calculator.Calculate(Ctx(setup: 0m, minOrder: 0m,
+            p: new Dictionary<string, string> { ["MRR"] = "20" }));
 
-        // Slower MRR means more machine time → higher cost
-        Assert.True(slowMrr > defaultResult);
+        Assert.True(slowMrr.MachineTimeCost > defaultResult.MachineTimeCost);
     }
 }
 
@@ -124,53 +160,62 @@ public class CncTurnPricingCalculatorTests
 public class SlsPricingCalculatorTests
 {
     private readonly SlsPricingCalculator _calculator = new();
-    private const decimal Margin = 1.5m;
 
     [Fact]
     public void TechnologyName_IsSls()
         => Assert.Equal("SLS", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            50m, 0m, 100m, 10m, 10m, 5m,
-            0.8m, 120m, 200m, 500m, Margin, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            0.8m, 120m, 200m, 500m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 500m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_ZeroVolume_ReturnsAtLeastMinimumOrderPrice()
+    public void Calculate_ZeroVolume_PreservesFloor()
     {
-        // Powder-bed processes have a fallback layer count even when Z=0,
-        // so the result may exceed minimumOrderPrice. We just assert ≥ minimum.
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            0.8m, 120m, 0m, 500m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            0.8m, 120m, 0m, 500m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 500m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_TallerPart_CostsMoreDueToLayerCount()
     {
-        var shortPart = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m,  0.8m, 120m, 0m, 0m, 1.0m, null, []);
-        var tallPart  = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 50m, 0.8m, 120m, 0m, 0m, 1.0m, null, []);
+        var makeCtx = (decimal z) => new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = z },
+            0.8m, 120m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(tallPart > shortPart);
+        var shortPart = _calculator.Calculate(makeCtx(5m));
+        var tallPart = _calculator.Calculate(makeCtx(50m));
+
+        Assert.True(tallPart.SubtotalBeforeMargin > shortPart.SubtotalBeforeMargin);
     }
 
     [Fact]
     public void Calculate_PowderRefreshOverheadIncluded()
     {
-        // SLS applies 1.15× material overhead. Verify result > raw material cost.
-        // volume=100, materialCost=1.0 → raw material=100. With 1.15× → at least 115.
-        var result = _calculator.Calculate(
-            100m, 0m, 200m, 10m, 10m, 10m,
-            1.0m, 0m, 0m, 0m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 100m, BoundingBoxZ = 10m },
+            1.0m, 0m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(result > 100m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.MaterialCost > 100m); // 1.15× overhead
     }
 }
 
@@ -185,35 +230,43 @@ public class MjfPricingCalculatorTests
         => Assert.Equal("MJF", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            50m, 0m, 100m, 10m, 10m, 5m,
-            0.9m, 150m, 200m, 600m, 1.5m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            0.9m, 150m, 200m, 600m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 600m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(600m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_ZeroVolume_ReturnsAtLeastMinimumOrderPrice()
+    public void Calculate_ZeroVolume_PreservesFloor()
     {
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            0.9m, 150m, 0m, 600m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            0.9m, 150m, 0m, 600m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 600m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(600m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_FusingAgentOverheadIncluded()
     {
-        // MJF applies 1.20× material overhead (fusing + detailing agents).
-        // volume=100, materialCost=1.0 → raw material=100. With 1.20× → at least 120.
-        var result = _calculator.Calculate(
-            100m, 0m, 200m, 10m, 10m, 10m,
-            1.0m, 0m, 0m, 0m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 100m, BoundingBoxZ = 10m },
+            1.0m, 0m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(result > 100m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.MaterialCost > 100m); // 1.20× overhead
     }
 }
 
@@ -228,31 +281,49 @@ public class MjPricingCalculatorTests
         => Assert.Equal("MJ", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            50m, 5m, 100m, 10m, 10m, 5m,
-            2.0m, 200m, 300m, 1000m, 1.5m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, SupportVolumeCm3 = 5m, BoundingBoxZ = 5m },
+            2.0m, 200m, 300m, 1000m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 1000m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(1000m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_WithSupportVolume_IncludesSupportMaterialCost()
+    public void Calculate_WithSupportVolume_IncreasesSupportCost()
     {
-        var without = _calculator.Calculate(50m, 0m,  100m, 10m, 10m, 5m, 2.0m, 200m, 0m, 0m, 1.0m, null, []);
-        var with    = _calculator.Calculate(50m, 10m, 100m, 10m, 10m, 5m, 2.0m, 200m, 0m, 0m, 1.0m, null, []);
+        var withoutCtx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            2.0m, 200m, 0m, 0m, null, new Dictionary<string, string>());
+        var withCtx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, SupportVolumeCm3 = 10m, BoundingBoxZ = 5m },
+            2.0m, 200m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(with > without);
+        var without = _calculator.Calculate(withoutCtx);
+        var with = _calculator.Calculate(withCtx);
+
+        Assert.True(with.SupportMaterialCost > without.SupportMaterialCost);
+        Assert.True(with.SubtotalBeforeMargin > without.SubtotalBeforeMargin);
     }
 
     [Fact]
     public void Calculate_MoreLayers_HigherMachineCost()
     {
-        var shortPart = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 5m,  2.0m, 200m, 0m, 0m, 1.0m, null, []);
-        var tallPart  = _calculator.Calculate(50m, 0m, 100m, 10m, 10m, 50m, 2.0m, 200m, 0m, 0m, 1.0m, null, []);
+        var short_ = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            2.0m, 200m, 0m, 0m, null, new Dictionary<string, string>());
+        var tall = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 50m },
+            2.0m, 200m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(tallPart > shortPart);
+        Assert.True(_calculator.Calculate(tall).MachineTimeCost > _calculator.Calculate(short_).MachineTimeCost);
     }
 }
 
@@ -267,36 +338,44 @@ public class BjPricingCalculatorTests
         => Assert.Equal("BJ", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            50m, 0m, 100m, 10m, 10m, 5m,
-            2.0m, 200m, 500m, 2000m, 1.5m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            2.0m, 200m, 500m, 2000m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 2000m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(2000m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
     public void Calculate_IncludesSinteringSurcharge()
     {
-        // BJ adds 35% sintering surcharge on material + machine cost.
-        // volume=50, materialCost=2.0 → material=100. Expect total > 100 at 1.0× margin.
-        var result = _calculator.Calculate(
-            50m, 0m, 100m, 10m, 10m, 5m,
-            2.0m, 200m, 0m, 0m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 50m, BoundingBoxZ = 5m },
+            2.0m, 200m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(result > 100m);
+        var result = _calculator.Calculate(ctx);
+
+        // Sintering adds 35% of (material + base machine); machine time cost > base printing cost
+        Assert.True(result.MachineTimeCost > result.MaterialCost * 0.3m);
     }
 
     [Fact]
-    public void Calculate_ZeroVolume_ReturnsAtLeastMinimumOrderPrice()
+    public void Calculate_ZeroVolume_PreservesFloor()
     {
-        // BJ sintering is applied to machine cost too; fallback layers mean machine cost > 0.
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            2.0m, 200m, 0m, 2000m, 1.0m, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            2.0m, 200m, 0m, 2000m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 2000m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(2000m, result.MinimumOrderPriceFloor);
     }
 }
 
@@ -305,62 +384,82 @@ public class BjPricingCalculatorTests
 public class DmlsPricingCalculatorTests
 {
     private readonly DmlsPricingCalculator _calculator = new();
-    private const decimal Margin = 1.5m;
 
     [Fact]
     public void TechnologyName_IsDmls()
         => Assert.Equal("DMLS", _calculator.TechnologyName);
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsAtLeastMinimumOrder()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            20m, 5m, 80m, 5m, 5m, 10m,
-            15m, 1000m, 2000m, 10000m, Margin, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 20m, SupportVolumeCm3 = 5m, BoundingBoxZ = 10m },
+            15m, 1000m, 2000m, 10000m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 10000m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(10000m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_ZeroVolume_ReturnsAtLeastMinimumOrderPrice()
+    public void Calculate_ZeroVolume_PreservesFloor()
     {
-        // DMLS uses fallback layer count when Z=0; machine cost exceeds minimum.
-        var result = _calculator.Calculate(
-            0m, 0m, 0m, 0m, 0m, 0m,
-            15m, 1000m, 0m, 10000m, Margin, null, []);
+        var ctx = new PricingContext(
+            new GeometryMetrics(),
+            15m, 1000m, 0m, 10000m, null, new Dictionary<string, string>());
 
-        Assert.True(result >= 10000m);
+        var result = _calculator.Calculate(ctx);
+
+        Assert.Equal(10000m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_WithSupportRequired_AppliesDfmSurcharge()
     {
-        var dfmNoSupport   = new DfmMetrics { SupportRequired = false };
-        var dfmWithSupport = new DfmMetrics { SupportRequired = true };
+        var makeCtx = (bool supportRequired) => new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 20m, SupportVolumeCm3 = 5m, BoundingBoxZ = 10m },
+            15m, 1000m, 0m, 0m,
+            new DfmMetrics { SupportRequired = supportRequired },
+            new Dictionary<string, string>());
 
-        var without = _calculator.Calculate(20m, 5m, 80m, 5m, 5m, 10m, 15m, 1000m, 0m, 0m, 1.0m, dfmNoSupport, []);
-        var with    = _calculator.Calculate(20m, 5m, 80m, 5m, 5m, 10m, 15m, 1000m, 0m, 0m, 1.0m, dfmWithSupport, []);
+        var without = _calculator.Calculate(makeCtx(false));
+        var with = _calculator.Calculate(makeCtx(true));
 
-        Assert.True(with > without);
+        Assert.True(with.DfmSurcharge > without.DfmSurcharge);
     }
 
     [Fact]
     public void Calculate_SupportVolumeIncludedInMaterialCost()
     {
-        // Solid metal supports cost as much as part material in DMLS.
-        var withoutSupport = _calculator.Calculate(20m, 0m,  80m, 5m, 5m, 10m, 15m, 0m, 0m, 0m, 1.0m, null, []);
-        var withSupport    = _calculator.Calculate(20m, 10m, 80m, 5m, 5m, 10m, 15m, 0m, 0m, 0m, 1.0m, null, []);
+        var withoutSupport = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 20m, BoundingBoxZ = 10m },
+            15m, 0m, 0m, 0m, null, new Dictionary<string, string>());
+        var withSupport = new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 20m, SupportVolumeCm3 = 10m, BoundingBoxZ = 10m },
+            15m, 0m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(withSupport > withoutSupport);
+        var wo = _calculator.Calculate(withoutSupport);
+        var w = _calculator.Calculate(withSupport);
+
+        Assert.True(w.SupportMaterialCost > 0m);
+        Assert.True(w.SubtotalBeforeMargin > wo.SubtotalBeforeMargin);
     }
 
     [Fact]
     public void Calculate_TallerPart_CostsMoreDueToLayerCount()
     {
-        var shortPart = _calculator.Calculate(20m, 0m, 80m, 5m, 5m, 10m,  15m, 1000m, 0m, 0m, 1.0m, null, []);
-        var tallPart  = _calculator.Calculate(20m, 0m, 80m, 5m, 5m, 100m, 15m, 1000m, 0m, 0m, 1.0m, null, []);
+        var makeCtx = (decimal z) => new PricingContext(
+            new GeometryMetrics { VolumeCm3 = 20m, BoundingBoxZ = z },
+            15m, 1000m, 0m, 0m, null, new Dictionary<string, string>());
 
-        Assert.True(tallPart > shortPart);
+        var shortPart = _calculator.Calculate(makeCtx(10m));
+        var tallPart = _calculator.Calculate(makeCtx(100m));
+
+        Assert.True(tallPart.MachineTimeCost > shortPart.MachineTimeCost);
     }
 }
 
@@ -370,7 +469,18 @@ public class RuleBasedPricingEngineNewProcessesTests
 {
     private static (RuleBasedPricingEngine engine, PricingConfiguration config) CreateEngine()
     {
-        var engine = new RuleBasedPricingEngine(new Mock<ILogger<RuleBasedPricingEngine>>().Object);
+        var calculators = new IPricingCalculator[]
+        {
+            new FdmPricingCalculator(), new SlaPricingCalculator(),
+            new CncPricingCalculator(), new CncMillPricingCalculator(),
+            new CncTurnPricingCalculator(), new SlsPricingCalculator(),
+            new MjfPricingCalculator(), new MjPricingCalculator(),
+            new BjPricingCalculator(), new DmlsPricingCalculator(),
+            new ScanningPricingCalculator(), new DesignPricingCalculator(),
+        };
+        var registry = new PricingCalculatorRegistry(calculators);
+        var engine = new RuleBasedPricingEngine(
+            new Mock<ILogger<RuleBasedPricingEngine>>().Object, registry);
         var config = new PricingConfiguration
         {
             Id = Guid.NewGuid(),
@@ -426,7 +536,7 @@ public class RuleBasedPricingEngineNewProcessesTests
         var result = await engine.CalculateAsync(MakeRequest(processName), config, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.True(result.UnitPrice >= 0m);
+        Assert.True(result.Breakdown.SubtotalBeforeMargin >= 0m);
         Assert.Contains(expectedEngineToken, result.EngineName, StringComparison.OrdinalIgnoreCase);
     }
 }

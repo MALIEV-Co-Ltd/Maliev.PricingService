@@ -6,857 +6,509 @@ using Moq;
 
 namespace Maliev.PricingService.Tests.Unit;
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+file static class ContextFactory
+{
+    public static PricingContext Make(
+        decimal volumeCm3 = 50m,
+        decimal supportVolumeCm3 = 0m,
+        decimal surfaceAreaCm2 = 100m,
+        decimal boundingBoxX = 40m,   // mm — 40×40×40 mm = 64 cm³ block
+        decimal boundingBoxY = 40m,
+        decimal boundingBoxZ = 40m,
+        decimal materialPricePerCm3 = 0.5m,
+        decimal machineHourlyRate = 100m,
+        decimal setupFee = 50m,
+        decimal minimumOrderPrice = 300m,
+        DfmMetrics? dfm = null,
+        Dictionary<string, string>? processParameters = null)
+        => new(
+            new GeometryMetrics
+            {
+                VolumeCm3 = volumeCm3,
+                SupportVolumeCm3 = supportVolumeCm3,
+                SurfaceAreaCm2 = surfaceAreaCm2,
+                BoundingBoxX = boundingBoxX,
+                BoundingBoxY = boundingBoxY,
+                BoundingBoxZ = boundingBoxZ
+            },
+            materialPricePerCm3,
+            machineHourlyRate,
+            setupFee,
+            minimumOrderPrice,
+            dfm,
+            processParameters ?? new Dictionary<string, string>());
+
+    public static RuleBasedPricingEngine Engine()
+    {
+        var calculators = new IPricingCalculator[]
+        {
+            new FdmPricingCalculator(), new SlaPricingCalculator(),
+            new CncPricingCalculator(), new CncMillPricingCalculator(),
+            new CncTurnPricingCalculator(), new SlsPricingCalculator(),
+            new MjfPricingCalculator(), new MjPricingCalculator(),
+            new BjPricingCalculator(), new DmlsPricingCalculator(),
+            new ScanningPricingCalculator(), new DesignPricingCalculator(),
+        };
+        var registry = new PricingCalculatorRegistry(calculators);
+        return new RuleBasedPricingEngine(new Mock<ILogger<RuleBasedPricingEngine>>().Object, registry);
+    }
+}
+
+// ── FDM ───────────────────────────────────────────────────────────────────────
+
 public class FdmPricingCalculatorTests
 {
     private readonly FdmPricingCalculator _calculator = new();
-    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsCorrectPrice()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 50m,
-            supportVolumeCm3: 10m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 0.5m,
-            machineHourlyRate: 100m,
-            setupFee: 50m,
-            minimumOrderPrice: 300m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make());
 
-        Assert.InRange(result, 300m, 500m);
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(300m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_EmptyGeometry_ReturnsMinimumOrderPrice()
+    public void Calculate_EmptyGeometry_PreservesFloor()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 0m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 0m,
-            boundingBoxX: 0m,
-            boundingBoxY: 0m,
-            boundingBoxZ: 0m,
-            materialCostPerCm3: 0.5m,
-            machineHourlyRate: 100m,
-            setupFee: 50m,
-            minimumOrderPrice: 300m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 0m, supportVolumeCm3: 0m, boundingBoxZ: 0m));
 
-        Assert.Equal(300m, result);
+        Assert.Equal(300m, result.MinimumOrderPriceFloor);
+        Assert.True(result.SubtotalBeforeMargin >= 0m);
     }
 
     [Fact]
     public void Calculate_WithCustomDensity_UsesCustomDensity()
     {
-        var parameters = new Dictionary<string, string> { { "Density", "1.2" } };
-        
-        var result = _calculator.Calculate(
-            volumeCm3: 50m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 0.5m,
-            machineHourlyRate: 100m,
-            setupFee: 50m,
-            minimumOrderPrice: 300m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: parameters);
+        var withDefault = _calculator.Calculate(ContextFactory.Make(volumeCm3: 100m));
+        var withHeavy = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 100m,
+            processParameters: new Dictionary<string, string> { ["Density"] = "1.5" }));
 
-        Assert.InRange(result, 300m, 500m);
+        Assert.True(withHeavy.MaterialCost > withDefault.MaterialCost);
     }
 
     [Fact]
-    public void Calculate_WithSupport_AppliesSupportSurcharge()
+    public void Calculate_WithSupport_IncreasesSubtotal()
     {
-        var withoutSupport = _calculator.Calculate(
-            volumeCm3: 50m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 0.5m,
-            machineHourlyRate: 100m,
-            setupFee: 0m,
-            minimumOrderPrice: 0m,
-            marginMultiplier: 1.0m,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var without = _calculator.Calculate(ContextFactory.Make(
+            setupFee: 0m, minimumOrderPrice: 0m));
+        var with = _calculator.Calculate(ContextFactory.Make(
+            supportVolumeCm3: 10m, setupFee: 0m, minimumOrderPrice: 0m));
 
-        var withSupport = _calculator.Calculate(
-            volumeCm3: 50m,
-            supportVolumeCm3: 10m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 0.5m,
-            machineHourlyRate: 100m,
-            setupFee: 0m,
-            minimumOrderPrice: 0m,
-            marginMultiplier: 1.0m,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
-
-        Assert.True(withSupport > withoutSupport);
+        Assert.True(with.SubtotalBeforeMargin > without.SubtotalBeforeMargin);
+        Assert.True(with.SupportMaterialCost > 0m);
     }
 
     [Theory]
-    [InlineData(100, 50, 10, 5, 0.5, 100, 50, 300, true)]
-    [InlineData(10, 2, 1, 1, 0.5, 100, 50, 300, true)]
-    [InlineData(200, 50, 20, 10, 1.0, 200, 100, 300, true)]
-    public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal support, decimal surface, 
-        decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
+    [InlineData(100, 50, 10, 5, 0.5, 100, 50, 300)]
+    [InlineData(10, 2, 1, 1, 0.5, 100, 50, 300)]
+    [InlineData(200, 50, 20, 10, 1.0, 200, 100, 300)]
+    public void Calculate_VariousInputs_SubtotalIsConsistent(
+        decimal volume, decimal support, decimal surface,
+        decimal boxZ, decimal materialCost, decimal machineRate,
+        decimal setup, decimal minOrder)
     {
-        var result = _calculator.Calculate(
-            volumeCm3: volume,
-            supportVolumeCm3: support,
-            surfaceAreaCm2: surface,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: boxZ,
-            materialCostPerCm3: materialCost,
-            machineHourlyRate: machineRate,
-            setupFee: setup,
-            minimumOrderPrice: minOrder,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: volume, supportVolumeCm3: support, surfaceAreaCm2: surface,
+            boundingBoxZ: boxZ, materialPricePerCm3: materialCost,
+            machineHourlyRate: machineRate, setupFee: setup, minimumOrderPrice: minOrder));
 
-        if (expectMin)
-        {
-            Assert.InRange(result, minOrder - 1m, minOrder * 10m);
-        }
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
+        Assert.Equal(minOrder, result.MinimumOrderPriceFloor);
     }
 }
+
+// ── SLA ───────────────────────────────────────────────────────────────────────
 
 public class SlaPricingCalculatorTests
 {
     private readonly SlaPricingCalculator _calculator = new();
-    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsCorrectPrice()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 50m,
-            supportVolumeCm3: 10m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 2.0m,
-            machineHourlyRate: 150m,
-            setupFee: 100m,
-            minimumOrderPrice: 500m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make(
+            materialPricePerCm3: 2.0m, machineHourlyRate: 150m,
+            setupFee: 100m, minimumOrderPrice: 500m));
 
-        Assert.InRange(result, 500m, 1000m);
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
     }
 
     [Fact]
-    public void Calculate_EmptyGeometry_ReturnsMinimumOrderPrice()
+    public void Calculate_EmptyGeometry_PreservesFloor()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 0m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 0m,
-            boundingBoxX: 0m,
-            boundingBoxY: 0m,
-            boundingBoxZ: 0m,
-            materialCostPerCm3: 2.0m,
-            machineHourlyRate: 150m,
-            setupFee: 100m,
-            minimumOrderPrice: 500m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 0m, boundingBoxZ: 0m,
+            materialPricePerCm3: 2.0m, machineHourlyRate: 150m,
+            setupFee: 100m, minimumOrderPrice: 500m));
 
-        Assert.InRange(result, 700m, 950m);
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
-    public void Calculate_WithCustomLayerExposure_UsesCustomValue()
+    public void Calculate_WithCustomLayerExposure_AffectsMachineCost()
     {
-        var parameters = new Dictionary<string, string> { { "LayerExposure", "5.0" } };
+        var standard = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 200m, boundingBoxZ: 20m, machineHourlyRate: 150m, setupFee: 0m, minimumOrderPrice: 0m));
+        var slow = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 200m, boundingBoxZ: 20m, machineHourlyRate: 150m, setupFee: 0m, minimumOrderPrice: 0m,
+            processParameters: new Dictionary<string, string> { ["LayerExposure"] = "5.0" }));
 
-        // volumeCm3=200, boundingBoxZ=20 → 400 layers × (5+3)s = 3200s ≈ 0.889h print time
-        // machineCost ≈ 133, materialCost = 400, total × 1.5 ≈ 800 — well above minimum
-        var result = _calculator.Calculate(
-            volumeCm3: 200m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 20m,
-            materialCostPerCm3: 2.0m,
-            machineHourlyRate: 150m,
-            setupFee: 0m,
-            minimumOrderPrice: 0m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: parameters);
-
-        Assert.InRange(result, 700m, 1500m);
+        Assert.True(slow.MachineTimeCost > standard.MachineTimeCost);
     }
 
     [Theory]
-    [InlineData(200, 50, 200, 10, 2.0, 150, 100, 500, true)]
-    [InlineData(10, 2, 10, 1, 2.0, 150, 100, 500, true)]
-    public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal support, decimal surface,
-        decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
+    [InlineData(200, 50, 200, 10, 2.0, 150, 100, 500)]
+    [InlineData(10, 2, 10, 1, 2.0, 150, 100, 500)]
+    public void Calculate_VariousInputs_SubtotalIsConsistent(decimal volume, decimal support,
+        decimal surface, decimal boxZ, decimal materialCost, decimal machineRate,
+        decimal setup, decimal minOrder)
     {
-        var result = _calculator.Calculate(
-            volumeCm3: volume,
-            supportVolumeCm3: support,
-            surfaceAreaCm2: surface,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: boxZ,
-            materialCostPerCm3: materialCost,
-            machineHourlyRate: machineRate,
-            setupFee: setup,
-            minimumOrderPrice: minOrder,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: volume, supportVolumeCm3: support, surfaceAreaCm2: surface,
+            boundingBoxZ: boxZ, materialPricePerCm3: materialCost,
+            machineHourlyRate: machineRate, setupFee: setup, minimumOrderPrice: minOrder));
 
-        if (expectMin)
-        {
-            Assert.InRange(result, minOrder - 1m, minOrder * 10m);
-        }
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
+        Assert.Equal(minOrder, result.MinimumOrderPriceFloor);
     }
 }
+
+// ── CNC ───────────────────────────────────────────────────────────────────────
 
 public class CncPricingCalculatorTests
 {
     private readonly CncPricingCalculator _calculator = new();
-    private const decimal DefaultMarginMultiplier = 1.5m;
 
     [Fact]
-    public void Calculate_ValidInputs_ReturnsCorrectPrice()
+    public void Calculate_ValidInputs_BreakdownIsConsistent()
     {
-        var result = _calculator.Calculate(
+        var result = _calculator.Calculate(ContextFactory.Make(
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m,
+            setupFee: 500m, minimumOrderPrice: 2500m));
+
+        Assert.True(result.SubtotalBeforeMargin > 0m);
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
+    }
+
+    [Fact]
+    public void Calculate_EmptyGeometry_PreservesFloor()
+    {
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 0m, supportVolumeCm3: 0m,
+            boundingBoxX: 0m, boundingBoxY: 0m, boundingBoxZ: 0m,
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m,
+            setupFee: 500m, minimumOrderPrice: 2500m));
+
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
+    }
+
+    [Fact]
+    public void Calculate_ComplexPart_HasHigherSubtotalThanSimplePart()
+    {
+        // BoundingBox is in mm. Simple: 100×100×100 mm solid block (1000 cm³ bounding box, ~0 removal)
+        var simple = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 1000m, surfaceAreaCm2: 600m,
+            boundingBoxX: 100m, boundingBoxY: 100m, boundingBoxZ: 100m,
+            setupFee: 0m, minimumOrderPrice: 0m,
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m));
+
+        // Complex: 50×50×20 mm bounding box (50 cm³), actual volume 10 cm³ — 80% removal
+        var complex = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 10m, surfaceAreaCm2: 100m,
+            boundingBoxX: 50m, boundingBoxY: 50m, boundingBoxZ: 20m,
+            setupFee: 0m, minimumOrderPrice: 0m,
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m));
+
+        Assert.True(complex.SubtotalBeforeMargin > simple.SubtotalBeforeMargin * 0.1m);
+    }
+
+    [Fact]
+    public void Calculate_WithCustomMachinabilityRating_AffectsMachineCost()
+    {
+        // BoundingBox 40×40×40 mm → blockVolume 64 cm³ > volumeCm3 50 → non-zero removal volume
+        var standard = _calculator.Calculate(ContextFactory.Make(
             volumeCm3: 50m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 5.0m,
-            machineHourlyRate: 500m,
-            setupFee: 500m,
-            minimumOrderPrice: 2500m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
-
-        Assert.InRange(result, 2500m, 15000m);
-    }
-
-    [Fact]
-    public void Calculate_EmptyGeometry_ReturnsMinimumOrderPrice()
-    {
-        var result = _calculator.Calculate(
-            volumeCm3: 0m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 0m,
-            boundingBoxX: 0m,
-            boundingBoxY: 0m,
-            boundingBoxZ: 0m,
-            materialCostPerCm3: 5.0m,
-            machineHourlyRate: 500m,
-            setupFee: 500m,
-            minimumOrderPrice: 2500m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
-
-        Assert.Equal(2500m, result);
-    }
-
-    [Fact]
-    public void Calculate_WithHighSurfaceAreaToVolume_AppliesComplexityFactor()
-    {
-        var simplePart = _calculator.Calculate(
-            volumeCm3: 1000m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 600m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 10m,
-            materialCostPerCm3: 5.0m,
-            machineHourlyRate: 500m,
-            setupFee: 0m,
-            minimumOrderPrice: 0m,
-            marginMultiplier: 1.0m,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
-
-        var complexPart = _calculator.Calculate(
-            volumeCm3: 10m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 5m,
-            boundingBoxY: 5m,
-            boundingBoxZ: 2m,
-            materialCostPerCm3: 5.0m,
-            machineHourlyRate: 500m,
-            setupFee: 0m,
-            minimumOrderPrice: 0m,
-            marginMultiplier: 1.0m,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
-
-        Assert.True(complexPart > simplePart * 0.1m);
-    }
-
-    [Fact]
-    public void Calculate_WithCustomMachinabilityRating_UsesCustomValue()
-    {
-        var parameters = new Dictionary<string, string> { { "MachinabilityRating", "0.5" } };
-        
-        var result = _calculator.Calculate(
+            boundingBoxX: 40m, boundingBoxY: 40m, boundingBoxZ: 40m,
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m,
+            setupFee: 0m, minimumOrderPrice: 2500m));
+        var hard = _calculator.Calculate(ContextFactory.Make(
             volumeCm3: 50m,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: 100m,
-            boundingBoxX: 10m,
-            boundingBoxY: 10m,
-            boundingBoxZ: 5m,
-            materialCostPerCm3: 5.0m,
-            machineHourlyRate: 500m,
-            setupFee: 0m,
-            minimumOrderPrice: 2500m,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: parameters);
+            boundingBoxX: 40m, boundingBoxY: 40m, boundingBoxZ: 40m,
+            materialPricePerCm3: 5.0m, machineHourlyRate: 500m,
+            setupFee: 0m, minimumOrderPrice: 2500m,
+            processParameters: new Dictionary<string, string> { ["MachinabilityRating"] = "0.5" }));
 
-        Assert.InRange(result, 2500m, 50000m);
+        Assert.True(hard.MachineTimeCost > standard.MachineTimeCost);
     }
 
     [Theory]
-    [InlineData(100, 500, 500, 10, 5.0, 500, 500, 2500, true)]
-    [InlineData(10, 10, 10, 1, 5.0, 500, 500, 2500, true)]
-    public void Calculate_VariousVolumes_ReturnsExpectedResults(decimal volume, decimal surface, decimal boxProduct,
-        decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder, bool expectMin)
+    [InlineData(100, 500, 10, 5.0, 500, 500, 2500)]
+    [InlineData(10, 10, 1, 5.0, 500, 500, 2500)]
+    public void Calculate_VariousInputs_SubtotalIsConsistent(decimal volume, decimal surface,
+        decimal boxZ, decimal materialCost, decimal machineRate, decimal setup, decimal minOrder)
     {
-        var boxX = Math.Pow((double)boxProduct, 1.0/3.0);
-        
-        var result = _calculator.Calculate(
-            volumeCm3: volume,
-            supportVolumeCm3: 0m,
-            surfaceAreaCm2: surface,
-            boundingBoxX: (decimal)boxX,
-            boundingBoxY: (decimal)boxX,
-            boundingBoxZ: boxZ,
-            materialCostPerCm3: materialCost,
-            machineHourlyRate: machineRate,
-            setupFee: setup,
-            minimumOrderPrice: minOrder,
-            marginMultiplier: DefaultMarginMultiplier,
-            dfm: null,
-            processParameters: new Dictionary<string, string>());
+        var cbrt = Math.Pow((double)500m, 1.0 / 3.0);
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: volume, surfaceAreaCm2: surface,
+            boundingBoxX: (decimal)cbrt, boundingBoxY: (decimal)cbrt, boundingBoxZ: boxZ,
+            materialPricePerCm3: materialCost, machineHourlyRate: machineRate,
+            setupFee: setup, minimumOrderPrice: minOrder));
 
-        if (expectMin)
-        {
-            Assert.InRange(result, minOrder - 1m, minOrder * 10m);
-        }
+        Assert.Equal(result.SubtotalBeforeMargin,
+            result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost
+            + result.SetupCost + result.DfmSurcharge + result.ComplexitySurcharge);
+        Assert.Equal(minOrder, result.MinimumOrderPriceFloor);
     }
 }
 
+// ── Engine Dispatch ────────────────────────────────────────────────────────────
+
 public class RuleBasedPricingEngineTests
 {
-    [Fact]
-    public async Task CalculateAsync_FdmProcess_ReturnsFdmCalculatorResult()
+    private static PricingConfiguration MakeConfig(
+        decimal materialCostPerCm3 = 0.5m,
+        decimal machineHourlyRate = 100m,
+        decimal setupFee = 50m,
+        decimal minOrder = 300m,
+        decimal margin = 1.5m) => new()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
+        Id = Guid.NewGuid(),
+        MaterialId = Guid.NewGuid(),
+        ManufacturingProcessId = Guid.NewGuid(),
+        MaterialPricePerCm3 = materialCostPerCm3,
+        MachineHourlyRate = machineHourlyRate,
+        SetupCostFlat = setupFee,
+        MinimumOrderPrice = minOrder,
+        MarginMultiplier = margin,
+        IsActive = true,
+        EffectiveFrom = DateTime.UtcNow
+    };
 
-        var request = new PricingRequest
+    private static PricingRequest MakeRequest(string processName, decimal quantity = 1m) => new()
+    {
+        FileId = Guid.NewGuid(),
+        CustomerId = Guid.NewGuid(),
+        MaterialId = Guid.NewGuid(),
+        MaterialCode = "PLA",
+        ManufacturingProcessId = Guid.NewGuid(),
+        ManufacturingProcessName = processName,
+        Quantity = quantity,
+        Geometry = new GeometryMetrics
         {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "PLA",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "FDM",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 50m,
-                SupportVolumeCm3 = 10m,
-                SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 10m,
-                BoundingBoxY = 10m,
-                BoundingBoxZ = 5m
-            }
-        };
+            VolumeCm3 = 50m, SupportVolumeCm3 = 10m, SurfaceAreaCm2 = 100m,
+            BoundingBoxX = 40m, BoundingBoxY = 40m, BoundingBoxZ = 40m  // mm
+        }
+    };
 
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0.5m,
-            MachineHourlyRate = 100m,
-            SetupCostFlat = 50m,
-            MinimumOrderPrice = 300m,
-            MarginMultiplier = 1.5m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
+    [Fact]
+    public async Task CalculateAsync_FdmProcess_ReturnsFdmEngineResult()
+    {
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(MakeRequest("FDM"), MakeConfig(), CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.True(result.UnitPrice >= 300m);
+        Assert.True(result.Breakdown.SubtotalBeforeMargin >= 0m);
         Assert.Contains("FDM", result.EngineName);
     }
 
     [Fact]
-    public async Task CalculateAsync_SlaProcess_ReturnsSlaCalculatorResult()
+    public async Task CalculateAsync_SlaProcess_ReturnsSlaEngineResult()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
-
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "Standard Resin",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "SLA",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 50m,
-                SupportVolumeCm3 = 10m,
-                SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 10m,
-                BoundingBoxY = 10m,
-                BoundingBoxZ = 5m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 2.0m,
-            MachineHourlyRate = 150m,
-            SetupCostFlat = 100m,
-            MinimumOrderPrice = 500m,
-            MarginMultiplier = 1.5m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("SLA"),
+            MakeConfig(materialCostPerCm3: 2.0m, machineHourlyRate: 150m, setupFee: 100m, minOrder: 500m),
+            CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.True(result.UnitPrice >= 500m);
+        Assert.True(result.Breakdown.SubtotalBeforeMargin >= 0m);
         Assert.Contains("SLA", result.EngineName);
     }
 
     [Fact]
-    public async Task CalculateAsync_CncProcess_ReturnsCncCalculatorResult()
+    public async Task CalculateAsync_CncProcess_ReturnsCncEngineResult()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
-
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "6061 Aluminum",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "CNC",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 50m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 10m,
-                BoundingBoxY = 10m,
-                BoundingBoxZ = 5m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 5.0m,
-            MachineHourlyRate = 500m,
-            SetupCostFlat = 500m,
-            MinimumOrderPrice = 2500m,
-            MarginMultiplier = 1.5m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("CNC"),
+            MakeConfig(materialCostPerCm3: 5.0m, machineHourlyRate: 500m, setupFee: 500m, minOrder: 2500m),
+            CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.True(result.UnitPrice >= 2500m);
+        Assert.True(result.Breakdown.SubtotalBeforeMargin >= 0m);
         Assert.Contains("CNC", result.EngineName);
     }
 
     [Fact]
-    public async Task CalculateAsync_UnknownProcess_DefaultsToFdm()
+    public async Task CalculateAsync_UnknownProcess_ReturnsUnknownProcessResult()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
-
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "Unknown",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "Unknown Process",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 50m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 10m,
-                BoundingBoxY = 10m,
-                BoundingBoxZ = 5m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0.5m,
-            MachineHourlyRate = 100m,
-            SetupCostFlat = 50m,
-            MinimumOrderPrice = 300m,
-            MarginMultiplier = 1.5m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("Unknown Process"), MakeConfig(), CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Contains("FDM", result.EngineName);
+        Assert.Equal("UnknownProcess", result.EngineName);
+        Assert.Equal(0m, result.Breakdown.SubtotalBeforeMargin);
     }
 
     [Fact]
-    public async Task CalculateAsync_QuantityGreaterThanOne_ReturnsTotalAmountMultiplied()
+    public async Task CalculateAsync_Quantity5_EngineReturnsPerUnitBreakdown()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
+        var engine = ContextFactory.Engine();
+        var qty1 = await engine.CalculateAsync(MakeRequest("FDM", 1), MakeConfig(), CancellationToken.None);
+        var qty5 = await engine.CalculateAsync(MakeRequest("FDM", 5), MakeConfig(), CancellationToken.None);
 
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "PLA",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "FDM",
-            Quantity = 5,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 50m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 10m,
-                BoundingBoxY = 10m,
-                BoundingBoxZ = 5m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0.5m,
-            MachineHourlyRate = 100m,
-            SetupCostFlat = 50m,
-            MinimumOrderPrice = 300m,
-            MarginMultiplier = 1.5m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.Equal(result.UnitPrice * 5, result.TotalAmount);
+        // Engine computes per-unit cost (not multiplied by quantity)
+        Assert.Equal(qty1.Breakdown.SubtotalBeforeMargin, qty5.Breakdown.SubtotalBeforeMargin);
     }
 
     [Fact]
-    public async Task CalculateAsync_ScanningProcess_ReturnsScanningCalculatorResult()
+    public async Task CalculateAsync_ScanningProcess_ReturnsZeroSubtotalWithFloor()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
-
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "N/A",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "3D Scanning",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 0m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 0m,
-                BoundingBoxX = 0m,
-                BoundingBoxY = 0m,
-                BoundingBoxZ = 0m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0m,
-            MachineHourlyRate = 0m,
-            SetupCostFlat = 0m,
-            MinimumOrderPrice = 2500m,
-            MarginMultiplier = 1.0m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("3D Scanning"),
+            MakeConfig(materialCostPerCm3: 0m, machineHourlyRate: 0m, setupFee: 0m, minOrder: 2500m),
+            CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(2500m, result.TotalAmount);
+        Assert.Equal(0m, result.Breakdown.SubtotalBeforeMargin);
+        Assert.Equal(2500m, result.Breakdown.MinimumOrderPriceFloor);
         Assert.Contains("Scanning", result.EngineName);
     }
 
     [Fact]
-    public async Task CalculateAsync_ScanningReverseEngineering_ReturnsScanningCalculatorResult()
+    public async Task CalculateAsync_ScanningReverseEngineering_Returns4500Floor()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("3D Scanning + Reverse Engineering"),
+            MakeConfig(materialCostPerCm3: 0m, machineHourlyRate: 0m, setupFee: 0m, minOrder: 4500m),
+            CancellationToken.None);
 
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "N/A",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "3D Scanning + Reverse Engineering",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 0m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 0m,
-                BoundingBoxX = 0m,
-                BoundingBoxY = 0m,
-                BoundingBoxZ = 0m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0m,
-            MachineHourlyRate = 0m,
-            SetupCostFlat = 0m,
-            MinimumOrderPrice = 4500m,
-            MarginMultiplier = 1.0m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.Equal(4500m, result.TotalAmount);
+        Assert.Equal(4500m, result.Breakdown.MinimumOrderPriceFloor);
         Assert.Contains("Scanning", result.EngineName);
     }
 
     [Fact]
-    public async Task CalculateAsync_DesignProcess_ReturnsDesignCalculatorResult()
+    public async Task CalculateAsync_DesignProcess_ReturnsZeroSubtotalWithFloor()
     {
-        var logger = new Mock<ILogger<RuleBasedPricingEngine>>();
-        var engine = new RuleBasedPricingEngine(logger.Object);
+        var engine = ContextFactory.Engine();
+        var result = await engine.CalculateAsync(
+            MakeRequest("3D Design"),
+            MakeConfig(materialCostPerCm3: 0m, machineHourlyRate: 0m, setupFee: 0m, minOrder: 500m),
+            CancellationToken.None);
 
-        var request = new PricingRequest
-        {
-            FileId = Guid.NewGuid(),
-            CustomerId = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            MaterialCode = "N/A",
-            ManufacturingProcessId = Guid.NewGuid(),
-            ManufacturingProcessName = "3D Design",
-            Quantity = 1,
-            Geometry = new GeometryMetrics
-            {
-                VolumeCm3 = 0m,
-                SupportVolumeCm3 = 0m,
-                SurfaceAreaCm2 = 0m,
-                BoundingBoxX = 0m,
-                BoundingBoxY = 0m,
-                BoundingBoxZ = 0m
-            }
-        };
-
-        var config = new PricingConfiguration
-        {
-            Id = Guid.NewGuid(),
-            MaterialId = Guid.NewGuid(),
-            ManufacturingProcessId = Guid.NewGuid(),
-            MaterialPricePerCm3 = 0m,
-            MachineHourlyRate = 0m,
-            SetupCostFlat = 0m,
-            MinimumOrderPrice = 500m,
-            MarginMultiplier = 1.0m,
-            IsActive = true,
-            EffectiveFrom = DateTime.UtcNow
-        };
-
-        var result = await engine.CalculateAsync(request, config, CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.Equal(500m, result.TotalAmount);
+        Assert.Equal(0m, result.Breakdown.SubtotalBeforeMargin);
+        Assert.Equal(500m, result.Breakdown.MinimumOrderPriceFloor);
         Assert.Contains("Design", result.EngineName);
     }
 }
+
+// ── Scanning ──────────────────────────────────────────────────────────────────
 
 public class ScanningPricingCalculatorTests
 {
     private readonly ScanningPricingCalculator _calculator = new();
 
     [Fact]
-    public void Calculate_ReturnsMinimumOrderPrice()
+    public void Calculate_ReturnsZeroSubtotalWithFloor()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 100, supportVolumeCm3: 0, surfaceAreaCm2: 200,
-            boundingBoxX: 10, boundingBoxY: 10, boundingBoxZ: 10,
-            materialCostPerCm3: 0, machineHourlyRate: 0, setupFee: 0,
-            minimumOrderPrice: 2500m, marginMultiplier: 1.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 100m, machineHourlyRate: 0m, setupFee: 0m, minimumOrderPrice: 2500m));
 
-        Assert.Equal(2500m, result);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
-    public void Calculate_WithHigherMinimum_ReturnsHigherPrice()
+    public void Calculate_WithHigherMinimum_ReturnsHigherFloor()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 100, supportVolumeCm3: 0, surfaceAreaCm2: 200,
-            boundingBoxX: 10, boundingBoxY: 10, boundingBoxZ: 10,
-            materialCostPerCm3: 0, machineHourlyRate: 0, setupFee: 0,
-            minimumOrderPrice: 4500m, marginMultiplier: 1.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(minimumOrderPrice: 4500m));
 
-        Assert.Equal(4500m, result);
+        Assert.Equal(4500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_IgnoresGeometryParameters()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 9999, supportVolumeCm3: 9999, surfaceAreaCm2: 9999,
-            boundingBoxX: 9999, boundingBoxY: 9999, boundingBoxZ: 9999,
-            materialCostPerCm3: 9999, machineHourlyRate: 9999, setupFee: 9999,
-            minimumOrderPrice: 2500m, marginMultiplier: 2.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 9999m, surfaceAreaCm2: 9999m,
+            machineHourlyRate: 9999m, setupFee: 9999m,
+            minimumOrderPrice: 2500m));
 
-        Assert.Equal(2500m, result);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
+        Assert.Equal(2500m, result.MinimumOrderPriceFloor);
     }
 
     [Theory]
     [InlineData(2500)]
     [InlineData(4500)]
     [InlineData(500)]
-    public void Calculate_VariousMinimums_ReturnsExactMinimum(decimal minimumOrderPrice)
+    public void Calculate_VariousMinimums_PreservesFloor(decimal minimumOrderPrice)
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 0, supportVolumeCm3: 0, surfaceAreaCm2: 0,
-            boundingBoxX: 0, boundingBoxY: 0, boundingBoxZ: 0,
-            materialCostPerCm3: 0, machineHourlyRate: 0, setupFee: 0,
-            minimumOrderPrice: minimumOrderPrice, marginMultiplier: 1.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(minimumOrderPrice: minimumOrderPrice));
 
-        Assert.Equal(minimumOrderPrice, result);
+        Assert.Equal(minimumOrderPrice, result.MinimumOrderPriceFloor);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
     }
 }
+
+// ── Design ────────────────────────────────────────────────────────────────────
 
 public class DesignPricingCalculatorTests
 {
     private readonly DesignPricingCalculator _calculator = new();
 
     [Fact]
-    public void Calculate_ReturnsMinimumOrderPrice()
+    public void Calculate_ReturnsZeroSubtotalWithFloor()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 0, supportVolumeCm3: 0, surfaceAreaCm2: 0,
-            boundingBoxX: 0, boundingBoxY: 0, boundingBoxZ: 0,
-            materialCostPerCm3: 0, machineHourlyRate: 0, setupFee: 0,
-            minimumOrderPrice: 500m, marginMultiplier: 1.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(minimumOrderPrice: 500m));
 
-        Assert.Equal(500m, result);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
     }
 
     [Fact]
     public void Calculate_IgnoresGeometryParameters()
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 9999, supportVolumeCm3: 9999, surfaceAreaCm2: 9999,
-            boundingBoxX: 9999, boundingBoxY: 9999, boundingBoxZ: 9999,
-            materialCostPerCm3: 9999, machineHourlyRate: 9999, setupFee: 9999,
-            minimumOrderPrice: 500m, marginMultiplier: 2.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(
+            volumeCm3: 9999m, machineHourlyRate: 9999m,
+            setupFee: 9999m, minimumOrderPrice: 500m));
 
-        Assert.Equal(500m, result);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
+        Assert.Equal(500m, result.MinimumOrderPriceFloor);
     }
 
     [Theory]
     [InlineData(500)]
     [InlineData(1000)]
     [InlineData(2500)]
-    public void Calculate_VariousMinimums_ReturnsExactMinimum(decimal minimumOrderPrice)
+    public void Calculate_VariousMinimums_PreservesFloor(decimal minimumOrderPrice)
     {
-        var result = _calculator.Calculate(
-            volumeCm3: 0, supportVolumeCm3: 0, surfaceAreaCm2: 0,
-            boundingBoxX: 0, boundingBoxY: 0, boundingBoxZ: 0,
-            materialCostPerCm3: 0, machineHourlyRate: 0, setupFee: 0,
-            minimumOrderPrice: minimumOrderPrice, marginMultiplier: 1.0m,
-            dfm: null, processParameters: []);
+        var result = _calculator.Calculate(ContextFactory.Make(minimumOrderPrice: minimumOrderPrice));
 
-        Assert.Equal(minimumOrderPrice, result);
+        Assert.Equal(minimumOrderPrice, result.MinimumOrderPriceFloor);
+        Assert.Equal(0m, result.SubtotalBeforeMargin);
     }
 }

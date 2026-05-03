@@ -50,6 +50,12 @@ public class PricingConfiguration
     public decimal PrintSpeedCm3PerHour { get; set; }
 
     /// <summary>
+    /// Material density in g/cm³. Populated by MaterialDensitySyncWorker every 6h.
+    /// Null until first sync; calculators fall back to process-type defaults when null.
+    /// </summary>
+    public decimal? DensityGramPerCm3 { get; set; }
+
+    /// <summary>
     /// One-time setup cost per job.
     /// </summary>
     [Range(0, 100000)]
@@ -68,10 +74,11 @@ public class PricingConfiguration
     public decimal MarginMultiplier { get; set; } = 1.5m;
 
     /// <summary>
-    /// Surface area to volume ratio threshold for complexity surcharge.
+    /// Unitless SA/V characteristic-length ratio threshold for complexity surcharge.
+    /// Sphere ≈ 4.8, cube ≈ 6.0, complex/lattice parts > 8. Default 6.0 (corrected from old 2.0).
     /// </summary>
     [Range(0.1, 100)]
-    public decimal ComplexityThreshold { get; set; } = 2.0m;
+    public decimal ComplexityThreshold { get; set; } = 6.0m;
 
     /// <summary>
     /// Percentage surcharge for complex parts.

@@ -8,98 +8,86 @@ namespace Maliev.PricingService.Application.Services;
 public class RuleBasedPricingEngine : IPricingEngine
 {
     private readonly ILogger<RuleBasedPricingEngine> _logger;
-    private readonly Dictionary<string, IPricingCalculator> _calculators;
+    private readonly IPricingCalculatorRegistry _registry;
 
-    public RuleBasedPricingEngine(ILogger<RuleBasedPricingEngine> logger)
+    public RuleBasedPricingEngine(
+        ILogger<RuleBasedPricingEngine> logger,
+        IPricingCalculatorRegistry registry)
     {
         _logger = logger;
-        _calculators = new Dictionary<string, IPricingCalculator>(StringComparer.OrdinalIgnoreCase)
-        {
-            // FDM
-            { "FDM", new FdmPricingCalculator() },
-            { "Fused Deposition Modeling", new FdmPricingCalculator() },
-            { "3D Printing (FDM)", new FdmPricingCalculator() },
-            // SLA/DLP
-            { "SLA", new SlaPricingCalculator() },
-            { "Stereolithography", new SlaPricingCalculator() },
-            { "DLP", new SlaPricingCalculator() },
-            { "3D Printing (SLA)", new SlaPricingCalculator() },
-            { "3D Printing (SLA/DLP)", new SlaPricingCalculator() },
-            // CNC (legacy)
-            { "CNC", new CncPricingCalculator() },
-            { "CNC Machining", new CncPricingCalculator() },
-            // CNC Milling
-            { "CNC_MILL", new CncMillPricingCalculator() },
-            { "CNC Milling", new CncMillPricingCalculator() },
-            // CNC Turning
-            { "CNC_TURN", new CncTurnPricingCalculator() },
-            { "CNC Turning", new CncTurnPricingCalculator() },
-            // SLS
-            { "SLS", new SlsPricingCalculator() },
-            { "3D Printing (SLS)", new SlsPricingCalculator() },
-            // MJF
-            { "MJF", new MjfPricingCalculator() },
-            { "3D Printing (MJF)", new MjfPricingCalculator() },
-            // Material Jetting
-            { "MJ", new MjPricingCalculator() },
-            { "3D Printing (Material Jetting)", new MjPricingCalculator() },
-            // Binder Jetting
-            { "BJ", new BjPricingCalculator() },
-            { "3D Printing (Binder Jetting)", new BjPricingCalculator() },
-            // DMLS
-            { "DMLS", new DmlsPricingCalculator() },
-            { "3D Printing (DMLS)", new DmlsPricingCalculator() },
-            // Sheet Metal
-            { "Sheet Metal", new CncPricingCalculator() },
-            { "Sheet Metal Fabrication", new CncPricingCalculator() },
-            // Injection Molding
-            { "Injection Molding", new CncPricingCalculator() },
-            // Scanning
-            { "3D Scanning", new ScanningPricingCalculator() },
-            { "3D Scanning (Raw STL)", new ScanningPricingCalculator() },
-            { "3D Scanning + Reverse Engineering", new ScanningPricingCalculator() },
-            { "Scanning", new ScanningPricingCalculator() },
-            // Design
-            { "3D Design", new DesignPricingCalculator() },
-            { "Design", new DesignPricingCalculator() },
-        };
+        _registry = registry;
     }
 
-    public async Task<PricingResult> CalculateAsync(PricingRequest request, PricingConfiguration configuration, CancellationToken cancellationToken = default)
+    public Task<EngineResult> CalculateAsync(
+        PricingRequest request,
+        PricingConfiguration configuration,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Calculating rule-based price for {MaterialCode}, Process: {ProcessName}", 
+        _logger.LogInformation(
+            "Calculating rule-based price for {MaterialCode}, Process: {ProcessName}",
             request.MaterialCode, request.ManufacturingProcessName);
 
-        var processName = request.ManufacturingProcessName;
-        
-        if (!_calculators.TryGetValue(processName, out var calculator))
+        if (!_registry.TryResolve(request.ManufacturingProcessName, out var calculator))
         {
-            calculator = _calculators["FDM"];
-            _logger.LogWarning("Unknown process {ProcessName}, defaulting to FDM", processName);
+            _logger.LogError(
+                "No calculator registered for process '{ProcessName}'. Returning zero price.",
+                request.ManufacturingProcessName);
+
+            return Task.FromResult(new EngineResult(
+                new CostBreakdown(0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m),
+                "UnknownProcess"));
         }
 
-        var processParameters = new Dictionary<string, string>();
-        
-        var result = calculator.Calculate(
-            request.Geometry.VolumeCm3,
-            request.Geometry.SupportVolumeCm3,
-            request.Geometry.SurfaceAreaCm2,
-            request.Geometry.BoundingBoxX,
-            request.Geometry.BoundingBoxY,
-            request.Geometry.BoundingBoxZ,
-            configuration.MaterialPricePerCm3,
-            configuration.MachineHourlyRate,
-            configuration.SetupCostFlat,
-            configuration.MinimumOrderPrice,
-            configuration.MarginMultiplier,
-            request.Dfm,
-            processParameters);
+        var processParameters = BuildProcessParameters(configuration, request);
+        var ctx = new PricingContext(
+            Geometry: request.Geometry,
+            MaterialPricePerCm3: configuration.MaterialPricePerCm3,
+            MachineHourlyRate: configuration.MachineHourlyRate,
+            SetupFee: configuration.SetupCostFlat,
+            MinimumOrderPrice: configuration.MinimumOrderPrice,
+            Dfm: request.Dfm,
+            ProcessParameters: processParameters);
 
-        return new PricingResult
-        {
-            UnitPrice = result,
-            TotalAmount = result * request.Quantity,
-            EngineName = $"Rule-v1-{calculator.TechnologyName}"
-        };
+        var breakdown = calculator.Calculate(ctx);
+
+        return Task.FromResult(new EngineResult(
+            breakdown,
+            $"Rule-v1-{calculator.TechnologyName}"));
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildProcessParameters(
+        PricingConfiguration config, PricingRequest request)
+    {
+        var dict = new Dictionary<string, string>();
+
+        // ── Config-sourced parameters ──────────────────────────────────────────
+        if (config.PrintSpeedCm3PerHour > 0)
+            dict["FlowRate"] = config.PrintSpeedCm3PerHour.ToString("G");
+
+        if (config.DensityGramPerCm3 is > 0m)
+            dict["Density"] = config.DensityGramPerCm3.Value.ToString("G");
+
+        if (config.ComplexityThreshold > 0)
+            dict["ComplexityThreshold"] = config.ComplexityThreshold.ToString("G");
+        if (config.ComplexitySurchargePercent > 0)
+            dict["ComplexitySurchargePercent"] = config.ComplexitySurchargePercent.ToString("G");
+
+        if (config.SupportMaterialPricePerCm3 > 0)
+            dict["SupportMaterialPricePerCm3"] = config.SupportMaterialPricePerCm3.ToString("G");
+
+        // ── Request-sourced parameters (process-specific nullable extensions) ──
+        if (request.WeldLengthMm.HasValue)      dict["WeldLengthMm"]       = request.WeldLengthMm.Value.ToString();
+        if (request.CutLengthMm.HasValue)       dict["CutLengthMm"]        = request.CutLengthMm.Value.ToString();
+        if (request.BendCount.HasValue)         dict["BendCount"]           = request.BendCount.Value.ToString();
+        if (request.ElectrodeCount.HasValue)    dict["ElectrodeCount"]      = request.ElectrodeCount.Value.ToString();
+        if (request.PointCountThousands.HasValue) dict["PointCountThousands"] = request.PointCountThousands.Value.ToString();
+        if (request.LayerCount.HasValue)        dict["LayerCount"]          = request.LayerCount.Value.ToString();
+        if (request.WeightKg.HasValue)          dict["WeightKg"]            = request.WeightKg.Value.ToString("G");
+        if (request.ThicknessMm.HasValue)       dict["ThicknessMm"]         = request.ThicknessMm.Value.ToString("G");
+        if (request.VendorQuoteAmount.HasValue) dict["VendorQuoteAmount"]   = request.VendorQuoteAmount.Value.ToString("G");
+        if (request.VendorQuoteCurrency != null) dict["VendorQuoteCurrency"] = request.VendorQuoteCurrency;
+        if (request.VendorQuoteMarkupOverride.HasValue) dict["VendorQuoteMarkupOverride"] = request.VendorQuoteMarkupOverride.Value.ToString("G");
+
+        return dict;
     }
 }

@@ -17,6 +17,19 @@ public record PricingRequest
     public string? LeadTimeCode { get; init; }
     public string? ToleranceCode { get; init; }
     public decimal? ToleranceAdditionalCostPercent { get; init; }
+
+    // ── Process-specific extensions (backwards-compatible nullables) ──────────
+    public int? WeldLengthMm { get; init; }
+    public int? CutLengthMm { get; init; }
+    public int? BendCount { get; init; }
+    public int? ElectrodeCount { get; init; }
+    public int? PointCountThousands { get; init; }
+    public int? LayerCount { get; init; }
+    public decimal? WeightKg { get; init; }
+    public decimal? ThicknessMm { get; init; }
+    public decimal? VendorQuoteAmount { get; init; }
+    public string? VendorQuoteCurrency { get; init; }
+    public decimal? VendorQuoteMarkupOverride { get; init; }
 }
 
 public record GeometryMetrics
