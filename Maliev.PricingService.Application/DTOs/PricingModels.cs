@@ -62,6 +62,9 @@ public record PricingResult
 {
     public decimal UnitPrice { get; init; }
     public decimal TotalAmount { get; init; }
+    public decimal UnitPriceBeforeVolumeDiscount { get; init; }
+    public decimal VolumeDiscountUnitAmount { get; init; }
+    public decimal VolumeDiscountPercent { get; init; }
     public decimal ConfidenceScore { get; init; }
     public string EngineName { get; init; } = string.Empty;
     public Guid AuditId { get; init; }

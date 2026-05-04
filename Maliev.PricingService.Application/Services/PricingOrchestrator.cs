@@ -158,6 +158,8 @@ public class PricingOrchestrator : IPricingOrchestrator
         }
 
         decimal flooredUnitPrice = flooredUnitPriceThb * exchangeRate;
+        decimal unitPriceBeforeVolumeDiscount = marginedUnitPrice * leadTimeMultiplier * toleranceMultiplier * exchangeRate;
+        decimal volumeDiscountUnitAmount = Math.Max(0m, unitPriceBeforeVolumeDiscount - flooredUnitPrice);
         decimal total = totalThb * exchangeRate;
 
         // ── Lead-Time Estimation ─────────────────────────────────────────────────
@@ -329,6 +331,9 @@ public class PricingOrchestrator : IPricingOrchestrator
         {
             UnitPrice = flooredUnitPrice,
             TotalAmount = total,
+            UnitPriceBeforeVolumeDiscount = unitPriceBeforeVolumeDiscount,
+            VolumeDiscountUnitAmount = volumeDiscountUnitAmount,
+            VolumeDiscountPercent = volumeDiscountPct,
             ConfidenceScore = 1.0m,
             EngineName = engineResult.EngineName,
             AuditId = auditRecord.Id,
