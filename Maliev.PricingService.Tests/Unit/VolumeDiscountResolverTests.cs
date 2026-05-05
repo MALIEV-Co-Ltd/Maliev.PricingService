@@ -2,23 +2,22 @@ using Maliev.PricingService.Application.Services;
 using Maliev.PricingService.Domain.Entities;
 using Maliev.PricingService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 
 namespace Maliev.PricingService.Tests.Unit;
 
 /// <summary>
 /// Verifies VolumeDiscountResolver picks the correct tier for a given quantity.
-/// Uses EF Core InMemory provider so no Postgres is required.
+/// Uses SQLite in-memory so EF query behavior stays relational without requiring Postgres.
 /// </summary>
 public class VolumeDiscountResolverTests : IDisposable
 {
+    private readonly SqliteConnection _connection;
     private readonly PricingDbContext _db;
 
     public VolumeDiscountResolverTests()
     {
-        _db = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options);
+        (_connection, _db) = CreateDbContext();
 
         _db.VolumeDiscountTiers.AddRange(
             new VolumeDiscountTier { Id = Guid.NewGuid(), MinQuantity = 1,   MaxQuantity = 9,   DiscountPercent = 0m,  IsActive = true, SortOrder = 0 },
@@ -31,7 +30,11 @@ public class VolumeDiscountResolverTests : IDisposable
         _db.SaveChanges();
     }
 
-    public void Dispose() => _db.Dispose();
+    public void Dispose()
+    {
+        _db.Dispose();
+        _connection.Dispose();
+    }
 
     [Theory]
     [InlineData(1,   0)]
@@ -55,10 +58,9 @@ public class VolumeDiscountResolverTests : IDisposable
     [Fact]
     public async Task ResolveAsync_NoMatchingTier_ReturnsZeroDiscount()
     {
-        var emptyDb = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options);
+        var (emptyConnection, emptyDb) = CreateDbContext();
+        using var emptyConnectionScope = emptyConnection;
+        using var emptyDbScope = emptyDb;
 
         var resolver = new VolumeDiscountResolver(emptyDb);
 
@@ -67,16 +69,14 @@ public class VolumeDiscountResolverTests : IDisposable
         Assert.Null(tierId);
         Assert.Equal(0m, pct);
 
-        emptyDb.Dispose();
     }
 
     [Fact]
     public async Task ResolveAsync_InactiveTierForQuantity_ReturnsZeroDiscount()
     {
-        var db = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options);
+        var (connection, db) = CreateDbContext();
+        using var connectionScope = connection;
+        using var dbScope = db;
 
         db.VolumeDiscountTiers.Add(new VolumeDiscountTier
         {
@@ -91,17 +91,15 @@ public class VolumeDiscountResolverTests : IDisposable
         Assert.Null(tierId);
         Assert.Equal(0m, pct);
 
-        db.Dispose();
     }
 
     [Fact]
     public async Task ResolveAsync_MatchingTier_ReturnsTierId()
     {
         var tierId = Guid.NewGuid();
-        var db = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options);
+        var (connection, db) = CreateDbContext();
+        using var connectionScope = connection;
+        using var dbScope = db;
 
         db.VolumeDiscountTiers.Add(new VolumeDiscountTier
         {
@@ -115,6 +113,20 @@ public class VolumeDiscountResolverTests : IDisposable
 
         Assert.Equal(tierId, resolvedId);
 
-        db.Dispose();
+    }
+
+    private static (SqliteConnection Connection, PricingDbContext DbContext) CreateDbContext()
+    {
+        var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+
+        var dbContext = new PricingDbContext(
+            new DbContextOptionsBuilder<PricingDbContext>()
+                .UseSqlite(connection)
+                .Options);
+
+        dbContext.Database.EnsureCreated();
+
+        return (connection, dbContext);
     }
 }
