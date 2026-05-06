@@ -12,6 +12,8 @@ namespace Maliev.PricingService.Application.Services;
 
 public class PricingOrchestrator : IPricingOrchestrator
 {
+    private static readonly TimeSpan PriceCalculatedEventPublishTimeout = TimeSpan.FromSeconds(5);
+
     private readonly IPricingDbContext _context;
     private readonly IPricingEngine _ruleEngine;
     private readonly IJobServiceClient _jobServiceClient;
@@ -274,6 +276,7 @@ public class PricingOrchestrator : IPricingOrchestrator
         // ── Publish Event ────────────────────────────────────────────────────────
         try
         {
+            using var publishTimeout = new CancellationTokenSource(PriceCalculatedEventPublishTimeout);
             await _publishEndpoint.Publish(new PriceCalculatedEvent(
                 MessageId: Guid.NewGuid(),
                 MessageName: "PriceCalculatedEvent",
@@ -318,7 +321,13 @@ public class PricingOrchestrator : IPricingOrchestrator
                     StoragePath: request.StoragePath,
                     EstimatedLeadTimeDays: estimatedLeadTimeDays
                 )
-            ), cancellationToken);
+            ), publishTimeout.Token);
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex,
+                "PriceCalculatedEvent publish was canceled or timed out for AuditId={AuditId}; result will still be returned",
+                auditRecord.Id);
         }
         catch (Exception ex)
         {
