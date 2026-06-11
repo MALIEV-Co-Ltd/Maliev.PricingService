@@ -6,6 +6,13 @@ namespace Maliev.PricingService.Application.Interfaces;
 public interface IMaterialServiceClient
 {
     /// <summary>
+    /// Gets the material catalog.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The material catalog.</returns>
+    Task<IReadOnlyList<MaterialDto>> GetMaterialsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets a material by ID.
     /// </summary>
     /// <param name="materialId">The material ID.</param>

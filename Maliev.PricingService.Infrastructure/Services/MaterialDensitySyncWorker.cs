@@ -60,15 +60,21 @@ public class MaterialDensitySyncWorker : BackgroundService
             return;
         }
 
-        var distinctMaterialIds = configs.Select(c => c.MaterialId).Distinct().ToList();
+        var distinctMaterialIds = configs.Select(c => c.MaterialId).ToHashSet();
         _logger.LogInformation("MaterialDensitySyncWorker: syncing densities for {Count} materials", distinctMaterialIds.Count);
 
-        var densityMap = new Dictionary<Guid, decimal>();
-        foreach (var materialId in distinctMaterialIds)
+        var materials = await materialClient.GetMaterialsAsync(cancellationToken);
+        var densityMap = materials
+            .Where(material => distinctMaterialIds.Contains(material.Id)
+                && material.DensityGramPerCm3 > 0m)
+            .ToDictionary(material => material.Id, material => material.DensityGramPerCm3);
+
+        var missingCount = distinctMaterialIds.Count - densityMap.Count;
+        if (missingCount > 0)
         {
-            var material = await materialClient.GetMaterialAsync(materialId, cancellationToken);
-            if (material?.DensityGramPerCm3 is > 0m)
-                densityMap[materialId] = material.DensityGramPerCm3;
+            _logger.LogWarning(
+                "MaterialDensitySyncWorker: material catalog did not include usable density for {MissingCount} configured materials",
+                missingCount);
         }
 
         int updated = 0;
