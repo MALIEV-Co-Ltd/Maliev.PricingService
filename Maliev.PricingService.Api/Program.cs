@@ -4,10 +4,11 @@ using Maliev.PricingService.Api.Services;
 using Maliev.PricingService.Application;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Infrastructure;
+using Maliev.PricingService.Infrastructure.Clients;
 using Maliev.PricingService.Infrastructure.Data.SeedData;
 using Maliev.PricingService.Infrastructure.Persistence;
-using Maliev.PricingService.Infrastructure.Clients;
 using Maliev.PricingService.Infrastructure.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 // Initialize bootstrap logging
@@ -35,6 +36,12 @@ try
     // Add MassTransit with RabbitMQ
     builder.AddMassTransitWithRabbitMq(x =>
     {
+        x.AddEntityFrameworkOutbox<PricingDbContext>(options =>
+        {
+            _ = options.UsePostgres();
+            options.UseBusOutbox();
+        });
+
         // FileAnalyzedEventConsumer disabled — replaced by frontend-triggered flow
         // x.AddConsumer<FileAnalyzedEventConsumer>();
         x.AddConsumer<OrderCompletedEventConsumer>();

@@ -1,5 +1,6 @@
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Domain.Entities;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace Maliev.PricingService.Infrastructure.Persistence;
@@ -40,6 +41,10 @@ public class PricingDbContext : DbContext, IPricingDbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+        modelBuilder.AddOutboxStateEntity();
 
         // PricingSnapshot Configuration
         modelBuilder.Entity<PricingSnapshot>(builder =>
