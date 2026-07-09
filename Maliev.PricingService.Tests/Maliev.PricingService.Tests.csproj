@@ -39,6 +39,16 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- SQLitePCLRaw.lib.e_sqlite3 2.1.11 (GHSA-2m69-gcr7-jv3q, high) is pulled in transitively by
+       Microsoft.EntityFrameworkCore.Sqlite 10.0.7 for the in-memory SQLite tests. No patched 2.x
+       release exists (2.1.11 is the last 2.x; a 3.x major jump breaks the EF Core 10 SQLite
+       provider), and this is a test-only dependency that never ships in any Api artifact. Suppress
+       just this advisory so the NuGetAudit-as-error build stays green while every other package
+       remains audited. Revisit when EF Core ships a provider on a patched SQLitePCLRaw. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Maliev.PricingService.Api\Maliev.PricingService.Api.csproj" />
     <ProjectReference Include="..\Maliev.PricingService.Application\Maliev.PricingService.Application.csproj" />
