@@ -1,0 +1,368 @@
+using Maliev.PricingService.Application.DTOs;
+using Maliev.PricingService.Application.Interfaces;
+using Maliev.PricingService.Application.Services;
+using Maliev.PricingService.Domain.Entities;
+using Maliev.PricingService.Infrastructure.Persistence;
+using MassTransit;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using Testcontainers.PostgreSql;
+
+namespace Maliev.PricingService.Tests.Unit;
+
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class PricingConfigurationDatabaseCollection : ICollectionFixture<PricingConfigurationDatabaseFixture>
+{
+    public const string Name = "Pricing configuration database";
+}
+
+public sealed class PricingConfigurationDatabaseFixture : IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
+        .WithImage("postgres:18-alpine")
+        .WithDatabase("pricing_configuration_tests")
+        .Build();
+
+    public Task InitializeAsync() => _postgresContainer.StartAsync();
+
+    public Task DisposeAsync() => _postgresContainer.DisposeAsync().AsTask();
+
+    public async Task<PricingDbContext> CreateCleanDbContextAsync()
+    {
+        var db = new PricingDbContext(
+            new DbContextOptionsBuilder<PricingDbContext>()
+                .UseNpgsql(_postgresContainer.GetConnectionString())
+                .Options);
+
+        await db.Database.EnsureDeletedAsync();
+        await db.Database.EnsureCreatedAsync();
+        return db;
+    }
+}
+
+[Collection(PricingConfigurationDatabaseCollection.Name)]
+public sealed class PricingOrchestratorQuantityTests
+{
+    private readonly PricingConfigurationDatabaseFixture _fixture;
+
+    public PricingOrchestratorQuantityTests(PricingConfigurationDatabaseFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [Theory]
+    [InlineData(1, 500, 500)]
+    [InlineData(5, 100, 500)]
+    public async Task CalculatePriceAsync_RawLineTotalBelowMinimum_AppliesMinimumToLineTotal(
+        int quantity,
+        decimal expectedUnitPrice,
+        decimal expectedTotal)
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var orchestrator = CreateOrchestrator(db, subtotalBeforeMargin: 80m, minimumOrderPriceFloor: 500m);
+
+        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity));
+
+        Assert.Equal(expectedUnitPrice, result.UnitPrice);
+        Assert.Equal(expectedTotal, result.TotalAmount);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_RawLineTotalAboveMinimum_DoesNotApplyFloor()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var orchestrator = CreateOrchestrator(db, subtotalBeforeMargin: 200m, minimumOrderPriceFloor: 500m);
+
+        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity: 5));
+
+        Assert.Equal(200m, result.UnitPrice);
+        Assert.Equal(1000m, result.TotalAmount);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_FloorFxAndDiscount_DerivesConsistentCustomerCurrencyAmounts()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        db.VolumeDiscountTiers.Add(new VolumeDiscountTier
+        {
+            Id = Guid.NewGuid(),
+            MinQuantity = 5,
+            MaxQuantity = 5,
+            DiscountPercent = 10m,
+            IsActive = true,
+            SortOrder = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var engine = CreatePricingEngine(subtotalBeforeMargin: 110m, minimumOrderPriceFloor: 500m);
+        var orchestrator = CreateOrchestrator(db, engine.Object, exchangeRate: 2m);
+        var request = CreateRequest(materialId, processId, quantity: 5) with { Currency = "USD" };
+
+        var result = await orchestrator.CalculatePriceAsync(request);
+
+        Assert.Equal(200m, result.UnitPrice);
+        Assert.Equal(1000m, result.TotalAmount);
+        Assert.Equal(result.UnitPrice * request.Quantity, result.TotalAmount);
+        Assert.Equal(220m, result.UnitPriceBeforeVolumeDiscount);
+        Assert.Equal(20m, result.VolumeDiscountUnitAmount);
+        Assert.Equal(10m, result.VolumeDiscountPercent);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_ExactActiveIdMatch_UsesExactConfigurationBeforeCodeFallback()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        var exactConfiguration = CreatePricingConfiguration(
+            materialId,
+            processId,
+            materialCode: "ABS",
+            manufacturingProcessCode: "SLA_DLP");
+        var fallbackConfiguration = CreatePricingConfiguration(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            materialCode: "PLA",
+            manufacturingProcessCode: "FDM");
+        db.Configurations.AddRange(exactConfiguration, fallbackConfiguration);
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        PricingConfiguration? selectedConfiguration = null;
+        var engine = CreatePricingEngine(
+            subtotalBeforeMargin: 100m,
+            minimumOrderPriceFloor: 0m,
+            configuration => selectedConfiguration = configuration);
+        var orchestrator = CreateOrchestrator(db, engine.Object);
+
+        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity: 1));
+
+        Assert.NotEqual(Guid.Empty, result.AuditId);
+        Assert.NotNull(selectedConfiguration);
+        Assert.Equal(exactConfiguration.Id, selectedConfiguration.Id);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_IdsDriftAndCodesMatch_UsesSingleActiveCodeConfiguration()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var fallbackConfiguration = CreatePricingConfiguration(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            materialCode: "PLA",
+            manufacturingProcessCode: "FDM");
+        db.Configurations.Add(fallbackConfiguration);
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        PricingConfiguration? selectedConfiguration = null;
+        var engine = CreatePricingEngine(
+            subtotalBeforeMargin: 100m,
+            minimumOrderPriceFloor: 0m,
+            configuration => selectedConfiguration = configuration);
+        var logger = new Mock<ILogger<PricingOrchestrator>>();
+        var orchestrator = CreateOrchestrator(db, engine.Object, logger.Object);
+        var request = CreateRequest(Guid.NewGuid(), Guid.NewGuid(), quantity: 1) with
+        {
+            MaterialCode = "  pla  ",
+            ManufacturingProcessName = "Fused Filament Fabrication (FDM)",
+        };
+
+        var result = await orchestrator.CalculatePriceAsync(request);
+
+        Assert.NotEqual(Guid.Empty, result.AuditId);
+        Assert.NotNull(selectedConfiguration);
+        Assert.Equal(fallbackConfiguration.Id, selectedConfiguration.Id);
+        VerifyLogContains(logger, LogLevel.Information, "stable codes");
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_IdsDriftAndCodeMatchIsAmbiguous_ReturnsNoPrice()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        db.Configurations.AddRange(
+            CreatePricingConfiguration(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                materialCode: "PLA",
+                manufacturingProcessCode: "FDM"),
+            CreatePricingConfiguration(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                materialCode: "PLA",
+                manufacturingProcessCode: "FDM"));
+        await db.SaveChangesAsync();
+        var engine = CreatePricingEngine(subtotalBeforeMargin: 100m, minimumOrderPriceFloor: 0m);
+        var orchestrator = CreateOrchestrator(db, engine.Object);
+
+        var result = await orchestrator.CalculatePriceAsync(CreateRequest(Guid.NewGuid(), Guid.NewGuid(), quantity: 1));
+
+        Assert.Equal(0m, result.UnitPrice);
+        Assert.Equal(0m, result.TotalAmount);
+        Assert.Equal(Guid.Empty, result.AuditId);
+        engine.Verify(candidate => candidate.CalculateAsync(
+            It.IsAny<PricingRequest>(),
+            It.IsAny<PricingConfiguration>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static PricingOrchestrator CreateOrchestrator(
+        PricingDbContext db,
+        decimal subtotalBeforeMargin,
+        decimal minimumOrderPriceFloor)
+        => CreateOrchestrator(
+            db,
+            CreatePricingEngine(subtotalBeforeMargin, minimumOrderPriceFloor).Object);
+
+    private static PricingOrchestrator CreateOrchestrator(
+        PricingDbContext db,
+        IPricingEngine engine,
+        ILogger<PricingOrchestrator>? logger = null,
+        decimal exchangeRate = 1m)
+    {
+        var jobServiceClient = new Mock<IJobServiceClient>();
+        jobServiceClient
+            .Setup(client => client.GetQueueDepthByTechnologyAsync(
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var currencyClient = new Mock<ICurrencyServiceClient>();
+        currencyClient
+            .Setup(client => client.GetExchangeRateAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(exchangeRate);
+
+        return new PricingOrchestrator(
+            db,
+            engine,
+            jobServiceClient.Object,
+            logger ?? NullLogger<PricingOrchestrator>.Instance,
+            publishEndpoint.Object,
+            new VolumeDiscountResolver(db),
+            currencyClient.Object);
+    }
+
+    private static Mock<IPricingEngine> CreatePricingEngine(
+        decimal subtotalBeforeMargin,
+        decimal minimumOrderPriceFloor,
+        Action<PricingConfiguration>? onConfigurationSelected = null)
+    {
+        var engine = new Mock<IPricingEngine>();
+        engine
+            .Setup(candidate => candidate.CalculateAsync(
+                It.IsAny<PricingRequest>(),
+                It.IsAny<PricingConfiguration>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PricingRequest, PricingConfiguration, CancellationToken>(
+                (_, configuration, _) => onConfigurationSelected?.Invoke(configuration))
+            .ReturnsAsync(new EngineResult(
+                new CostBreakdown(
+                    MaterialCost: subtotalBeforeMargin,
+                    SupportMaterialCost: 0m,
+                    MachineTimeCost: 0m,
+                    SetupCost: 0m,
+                    DfmSurcharge: 0m,
+                    ComplexitySurcharge: 0m,
+                    SubtotalBeforeMargin: subtotalBeforeMargin,
+                    MinimumOrderPriceFloor: minimumOrderPriceFloor),
+                "TestEngine"));
+        return engine;
+    }
+
+    private static PricingConfiguration CreatePricingConfiguration(
+        Guid materialId,
+        Guid processId,
+        string materialCode = "PLA",
+        string manufacturingProcessCode = "FDM") => new()
+        {
+            Id = Guid.NewGuid(),
+            MaterialId = materialId,
+            MaterialCode = materialCode,
+            ManufacturingProcessId = processId,
+            ManufacturingProcessCode = manufacturingProcessCode,
+            MaterialPricePerCm3 = 1m,
+            SupportMaterialPricePerCm3 = 0m,
+            MachineHourlyRate = 100m,
+            PrintSpeedCm3PerHour = 10m,
+            SetupCostFlat = 0m,
+            MinimumOrderPrice = 500m,
+            MarginMultiplier = 1m,
+            ComplexityThreshold = 6m,
+            ComplexitySurchargePercent = 0m,
+            EffectiveFrom = DateTime.UtcNow.AddDays(-1),
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = "test",
+        };
+
+    private static void SeedMachineCapacity(PricingDbContext db)
+    {
+        db.MachineCapacityConfigs.Add(new MachineCapacityConfig
+        {
+            Id = Guid.NewGuid(),
+            ProcessType = "FDM",
+            MachineCount = 1,
+            AvgThroughputPartsPerDay = 10m,
+            SetupTimeDays = 1,
+            ShippingBufferDays = 1,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        });
+    }
+
+    private static void VerifyLogContains(
+        Mock<ILogger<PricingOrchestrator>> logger,
+        LogLevel level,
+        string expectedText)
+    {
+        logger.Verify(candidate => candidate.Log(
+            level,
+            It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((value, _) => value.ToString()!.Contains(expectedText, StringComparison.OrdinalIgnoreCase)),
+            It.IsAny<Exception?>(),
+            It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+    }
+
+    private static PricingRequest CreateRequest(Guid materialId, Guid processId, int quantity) => new()
+    {
+        FileId = Guid.NewGuid(),
+        CustomerId = Guid.NewGuid(),
+        MaterialId = materialId,
+        MaterialCode = "PLA",
+        ManufacturingProcessId = processId,
+        ManufacturingProcessName = "FDM",
+        Quantity = quantity,
+        Currency = "THB",
+        Geometry = new GeometryMetrics
+        {
+            VolumeCm3 = 10m,
+            SurfaceAreaCm2 = 25m,
+            BoundingBoxX = 10m,
+            BoundingBoxY = 10m,
+            BoundingBoxZ = 10m,
+            IsManifold = true,
+            TriangleCount = 100,
+        },
+        CorrelationId = Guid.NewGuid(),
+        StoragePath = "projects/quantity-test.stl",
+    };
+}

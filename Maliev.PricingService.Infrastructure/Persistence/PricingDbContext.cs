@@ -62,11 +62,15 @@ public class PricingDbContext : DbContext, IPricingDbContext
         {
             builder.ToTable("pricing_configurations");
             builder.HasKey(x => x.Id);
+            builder.Property(x => x.MaterialCode).IsRequired().HasMaxLength(50);
+            builder.Property(x => x.ManufacturingProcessCode).IsRequired().HasMaxLength(50);
             builder.Property(x => x.MaterialPricePerCm3).HasPrecision(18, 6);
             builder.Property(x => x.SupportMaterialPricePerCm3).HasPrecision(18, 6);
             builder.Property(x => x.MachineHourlyRate).HasPrecision(18, 2);
             builder.Property(x => x.PrintSpeedCm3PerHour).HasPrecision(18, 4);
             builder.HasIndex(x => new { x.MaterialId, x.ManufacturingProcessId, x.EffectiveFrom }).IsUnique();
+            builder.HasIndex(x => new { x.MaterialId, x.ManufacturingProcessId, x.IsActive, x.EffectiveFrom });
+            builder.HasIndex(x => new { x.MaterialCode, x.ManufacturingProcessCode, x.IsActive, x.EffectiveFrom });
             builder.Property<uint>("xmin")
                 .HasColumnType("xid")
                 .ValueGeneratedOnAddOrUpdate()

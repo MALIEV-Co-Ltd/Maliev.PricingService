@@ -42,30 +42,50 @@ public class PricingOrchestrator : IPricingOrchestrator
 
     public async Task<PricingResult> CalculatePriceAsync(PricingRequest request, CancellationToken cancellationToken = default)
     {
-        if (request.MaterialId == Guid.Empty)
-        {
-            _logger.LogDebug(
-                "Pricing request has MaterialId == Guid.Empty; skipping calculation. FileId: {FileId}",
-                request.FileId);
-            return new PricingResult
-            {
-                UnitPrice = 0,
-                TotalAmount = 0,
-                ConfidenceScore = 1.0m,
-                EngineName = "None",
-                AuditId = Guid.Empty,
-                EstimatedLeadTimeDays = 0
-            };
-        }
-
+        var effectiveAt = DateTime.UtcNow;
         var config = await _context.Configurations
             .Where(c => c.MaterialId == request.MaterialId
                      && c.ManufacturingProcessId == request.ManufacturingProcessId
                      && c.IsActive
-                     && c.EffectiveFrom <= DateTime.UtcNow
-                     && (c.EffectiveTo == null || c.EffectiveTo >= DateTime.UtcNow))
+                     && c.EffectiveFrom <= effectiveAt
+                     && (c.EffectiveTo == null || c.EffectiveTo >= effectiveAt))
             .OrderByDescending(c => c.EffectiveFrom)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (config == null)
+        {
+            var materialCode = NormalizeLookupCode(request.MaterialCode);
+            var fallbackProcessCode = NormalizeConfigurationProcessCode(request.ManufacturingProcessName);
+
+            if (materialCode.Length > 0 && fallbackProcessCode.Length > 0)
+            {
+                var codeMatches = await _context.Configurations
+                    .Where(c => c.MaterialCode == materialCode
+                             && c.ManufacturingProcessCode == fallbackProcessCode
+                             && c.IsActive
+                             && c.EffectiveFrom <= effectiveAt
+                             && (c.EffectiveTo == null || c.EffectiveTo >= effectiveAt))
+                    .Take(2)
+                    .ToListAsync(cancellationToken);
+
+                if (codeMatches.Count == 1)
+                {
+                    config = codeMatches[0];
+                    _logger.LogInformation(
+                        "Pricing configuration IDs drifted; using configuration {PricingConfigurationId} matched by stable codes {MaterialCode}/{ManufacturingProcessCode}",
+                        config.Id,
+                        materialCode,
+                        fallbackProcessCode);
+                }
+                else if (codeMatches.Count > 1)
+                {
+                    _logger.LogWarning(
+                        "Ambiguous active pricing configurations found for stable codes {MaterialCode}/{ManufacturingProcessCode}; refusing fallback",
+                        materialCode,
+                        fallbackProcessCode);
+                }
+            }
+        }
 
         if (config == null)
         {
@@ -144,11 +164,10 @@ public class PricingOrchestrator : IPricingOrchestrator
 
         decimal surchargedUnitPrice = discountedUnitPrice * leadTimeMultiplier * toleranceMultiplier;
 
-        // Step 5: apply minimum order price floor (in THB)
-        decimal flooredUnitPriceThb = Math.Max(surchargedUnitPrice, breakdown.MinimumOrderPriceFloor);
-
-        // Step 6: total in THB
-        decimal totalThb = flooredUnitPriceThb * request.Quantity;
+        // Step 5: apply minimum order price floor to the full line (in THB)
+        decimal rawTotalThb = surchargedUnitPrice * request.Quantity;
+        decimal flooredTotalThb = Math.Max(rawTotalThb, breakdown.MinimumOrderPriceFloor);
+        decimal flooredUnitPriceThb = flooredTotalThb / request.Quantity;
 
         // Step 7: convert to customer currency (snapshot rate on audit; fallback = 1.0 if service unavailable)
         decimal exchangeRate = 1.0m;
@@ -162,7 +181,7 @@ public class PricingOrchestrator : IPricingOrchestrator
         decimal flooredUnitPrice = flooredUnitPriceThb * exchangeRate;
         decimal unitPriceBeforeVolumeDiscount = marginedUnitPrice * leadTimeMultiplier * toleranceMultiplier * exchangeRate;
         decimal volumeDiscountUnitAmount = Math.Max(0m, unitPriceBeforeVolumeDiscount - flooredUnitPrice);
-        decimal total = totalThb * exchangeRate;
+        decimal total = flooredTotalThb * exchangeRate;
 
         // ── Lead-Time Estimation ─────────────────────────────────────────────────
         var capacity = await _context.MachineCapacityConfigs
@@ -409,5 +428,31 @@ public class PricingOrchestrator : IPricingOrchestrator
         if (name.Contains("BJ") || name.Contains("BINDER JETTING")) return "BJ";
         if (name.Contains("DMLS")) return "DMLS";
         return processName;
+    }
+
+    private static string NormalizeLookupCode(string? code)
+    {
+        return code?.Trim().ToUpperInvariant() ?? string.Empty;
+    }
+
+    private static string NormalizeConfigurationProcessCode(string? processName)
+    {
+        var name = NormalizeLookupCode(processName);
+        if (name.Contains("CNC_MILL", StringComparison.Ordinal)
+            || name.Contains("CNC MILL", StringComparison.Ordinal)) return "CNC_MILL";
+        if (name.Contains("CNC_TURN", StringComparison.Ordinal)
+            || name.Contains("CNC TURN", StringComparison.Ordinal)) return "CNC_TURN";
+        if (name.Contains("FDM", StringComparison.Ordinal)
+            || name.Contains("FFF", StringComparison.Ordinal)) return "FDM";
+        if (name.Contains("SLA", StringComparison.Ordinal)
+            || name.Contains("MSLA", StringComparison.Ordinal)
+            || name.Contains("DLP", StringComparison.Ordinal)) return "SLA_DLP";
+        if (name.Contains("CNC", StringComparison.Ordinal)) return "CNC";
+        if (name.Contains("SLS", StringComparison.Ordinal)) return "SLS";
+        if (name.Contains("MJF", StringComparison.Ordinal)) return "MJF";
+        if (name == "MJ" || name.Contains("MATERIAL JETTING", StringComparison.Ordinal)) return "MJ";
+        if (name == "BJ" || name.Contains("BINDER JETTING", StringComparison.Ordinal)) return "BJ";
+        if (name.Contains("DMLS", StringComparison.Ordinal)) return "DMLS";
+        return name.Replace(' ', '_').Replace('/', '_').Replace('-', '_');
     }
 }

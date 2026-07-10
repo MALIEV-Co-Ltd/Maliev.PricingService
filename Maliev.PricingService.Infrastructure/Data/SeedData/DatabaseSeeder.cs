@@ -127,22 +127,49 @@ public static class DatabaseSeeder
 
         try
         {
-            if (await context.Configurations.AnyAsync())
+            var catalogConfigurations = PricingCatalogSeedData.GetPricingConfigurations().ToList();
+            var catalogIds = catalogConfigurations.Select(config => config.Id).ToList();
+            var existingCatalogConfigurations = await context.Configurations
+                .Where(config => catalogIds.Contains(config.Id))
+                .ToDictionaryAsync(config => config.Id);
+            var now = DateTime.UtcNow;
+            var addedCount = 0;
+            var updatedCount = 0;
+
+            foreach (var catalogConfiguration in catalogConfigurations)
             {
-                logger.LogInformation("Pricing configurations already seeded. Skipping.");
-                return;
+                if (existingCatalogConfigurations.TryGetValue(catalogConfiguration.Id, out var existingConfiguration))
+                {
+                    if (existingConfiguration.MaterialCode != catalogConfiguration.MaterialCode
+                        || existingConfiguration.ManufacturingProcessCode != catalogConfiguration.ManufacturingProcessCode)
+                    {
+                        existingConfiguration.MaterialCode = catalogConfiguration.MaterialCode;
+                        existingConfiguration.ManufacturingProcessCode = catalogConfiguration.ManufacturingProcessCode;
+                        updatedCount++;
+                    }
+
+                    continue;
+                }
+
+                catalogConfiguration.CreatedAt = now;
+                await context.Configurations.AddAsync(catalogConfiguration);
+                addedCount++;
             }
 
-            var configs = PricingCatalogSeedData.GetPricingConfigurations().ToList();
-            var now = DateTime.UtcNow;
-            foreach (var config in configs) config.CreatedAt = now;
+            if (addedCount == 0 && updatedCount == 0)
+            {
+                logger.LogInformation("Pricing configurations already match the catalog. Skipping.");
+                return;
+            }
 
             var strategy = context.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
             {
-                await context.Configurations.AddRangeAsync(configs);
                 await context.SaveChangesAsync();
-                logger.LogInformation("Seeded {Count} pricing configurations.", configs.Count);
+                logger.LogInformation(
+                    "Reconciled pricing configurations: added {AddedCount}, stable codes updated {UpdatedCount}.",
+                    addedCount,
+                    updatedCount);
             });
         }
         catch (Exception ex)

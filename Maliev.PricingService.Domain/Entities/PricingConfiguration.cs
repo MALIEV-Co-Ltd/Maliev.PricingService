@@ -20,10 +20,24 @@ public class PricingConfiguration
     public Guid MaterialId { get; set; }
 
     /// <summary>
+    /// Stable normalized material code used when catalog identifiers drift.
+    /// </summary>
+    [Required]
+    [StringLength(50)]
+    public string MaterialCode { get; set; } = string.Empty;
+
+    /// <summary>
     /// Reference to the manufacturing process in MaterialService.
     /// </summary>
     [Required]
     public Guid ManufacturingProcessId { get; set; }
+
+    /// <summary>
+    /// Stable normalized manufacturing process code used when catalog identifiers drift.
+    /// </summary>
+    [Required]
+    [StringLength(50)]
+    public string ManufacturingProcessCode { get; set; } = string.Empty;
 
     /// <summary>
     /// Material cost per cubic centimeter.

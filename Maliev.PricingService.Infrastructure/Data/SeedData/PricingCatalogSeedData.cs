@@ -130,6 +130,61 @@ public static class PricingCatalogSeedData
     private static readonly Guid DmlsIn718Id = G("MAT_IN718");
     private static readonly Guid Dmls174PhId = G("MAT_174PH");
 
+    private static readonly IReadOnlyDictionary<Guid, string> ProcessCodes = new Dictionary<Guid, string>
+    {
+        [CncId] = "CNC",
+        [CncMillId] = "CNC_MILL",
+        [CncTurnId] = "CNC_TURN",
+        [FdmId] = "FDM",
+        [SlaDlpId] = "SLA_DLP",
+        [SlsId] = "SLS",
+        [MjfId] = "MJF",
+        [MjId] = "MJ",
+        [BjId] = "BJ",
+        [DmlsId] = "DMLS",
+    };
+
+    private static readonly IReadOnlyDictionary<Guid, string> MaterialCodes = new Dictionary<Guid, string>
+    {
+        [Al6061Id] = "AL6061",
+        [Al7075Id] = "AL7075",
+        [Ss304Id] = "SS304",
+        [Ss316LId] = "SS316L",
+        [BrassC360Id] = "BRASS_C360",
+        [CopperC110Id] = "COPPER_C110",
+        [Ti6Al4VId] = "TI6AL4V",
+        [PeekId] = "PEEK",
+        [DelrinId] = "DELRIN",
+        [PlaId] = "PLA",
+        [PetgId] = "PETG",
+        [AbsId] = "ABS",
+        [Pa12Id] = "PA12",
+        [Tpu95AId] = "TPU95A",
+        [AsaId] = "ASA",
+        [PcId] = "PC",
+        [CfPetgId] = "CF_PETG",
+        [StdResinId] = "STD_RESIN",
+        [ToughResinId] = "TOUGH_RESIN",
+        [FlexResinId] = "FLEX_RESIN",
+        [CastResinId] = "CAST_RESIN",
+        [HtResinId] = "HT_RESIN",
+        [SlsPa12Id] = "PA12_SLS",
+        [SlsPa11Id] = "PA11_SLS",
+        [SlsPa12GfId] = "PA12GF_SLS",
+        [MjfPa12Id] = "PA12_MJF",
+        [MjfPa12GbId] = "PA12GB_MJF",
+        [MjVeroWhiteId] = "VEROWHITE",
+        [MjVeroBlackId] = "VEROBLACK",
+        [MjTangoPlusId] = "TANGOPLUS",
+        [BjSs316LId] = "SS316L_BJ",
+        [BjBronzeId] = "BRONZE_BJ",
+        [BjSandId] = "SAND_BJ",
+        [DmlsTi6Al4VId] = "TI6AL4V_DMLS",
+        [DmlsAlSi10MgId] = "ALSI10MG",
+        [DmlsIn718Id] = "IN718",
+        [Dmls174PhId] = "174PH",
+    };
+
     // ── Material density defaults (g/cm³) used until MaterialDensitySyncWorker runs ──
     // Only FDM configs use density in the current formula (see FdmPricingCalculator).
     // Metals and resins are seeded too so future calculators can use them without waiting for sync.
@@ -187,6 +242,12 @@ public static class PricingCatalogSeedData
     public static IEnumerable<PricingConfiguration> GetPricingConfigurations() =>
         GetRawPricingConfigurations().Select(c =>
         {
+            c.MaterialCode = MaterialCodes.TryGetValue(c.MaterialId, out var materialCode)
+                ? materialCode
+                : throw new InvalidOperationException($"Missing stable material code for catalog ID {c.MaterialId}.");
+            c.ManufacturingProcessCode = ProcessCodes.TryGetValue(c.ManufacturingProcessId, out var processCode)
+                ? processCode
+                : throw new InvalidOperationException($"Missing stable manufacturing process code for catalog ID {c.ManufacturingProcessId}.");
             if (DensityDefaults.TryGetValue(c.MaterialId, out var density))
                 c.DensityGramPerCm3 = density;
             return c;
