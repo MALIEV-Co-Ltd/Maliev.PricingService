@@ -42,6 +42,23 @@ public class PricingOrchestrator : IPricingOrchestrator
 
     public async Task<PricingResult> CalculatePriceAsync(PricingRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.Quantity < 1m)
+        {
+            _logger.LogWarning(
+                "Pricing request has invalid quantity {Quantity}; returning no price for FileId {FileId}",
+                request.Quantity,
+                request.FileId);
+            return new PricingResult
+            {
+                UnitPrice = 0m,
+                TotalAmount = 0m,
+                ConfidenceScore = 1m,
+                EngineName = "None",
+                AuditId = Guid.Empty,
+                EstimatedLeadTimeDays = 0
+            };
+        }
+
         var effectiveAt = DateTime.UtcNow;
         var config = await _context.Configurations
             .Where(c => c.MaterialId == request.MaterialId

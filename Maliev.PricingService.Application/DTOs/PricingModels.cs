@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Maliev.PricingService.Application.DTOs;
 
 public record PricingRequest
@@ -8,6 +10,8 @@ public record PricingRequest
     public string MaterialCode { get; init; } = string.Empty;
     public Guid ManufacturingProcessId { get; init; }
     public string ManufacturingProcessName { get; init; } = string.Empty;
+    [Required]
+    [Range(typeof(decimal), "1", "2147483647")]
     public decimal Quantity { get; init; }
     public string Currency { get; init; } = "THB";
     public GeometryMetrics Geometry { get; init; } = new();
