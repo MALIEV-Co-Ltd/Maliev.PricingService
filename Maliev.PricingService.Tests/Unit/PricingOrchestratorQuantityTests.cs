@@ -2,6 +2,7 @@ using Maliev.PricingService.Application.DTOs;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Application.Services;
 using Maliev.PricingService.Domain.Entities;
+using Maliev.PricingService.Infrastructure.Data.SeedData;
 using Maliev.PricingService.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -89,6 +90,115 @@ public sealed class PricingOrchestratorQuantityTests
 
         Assert.Equal(200m, result.UnitPrice);
         Assert.Equal(1000m, result.TotalAmount);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_FixedSetupCost_AppliesOnceToTheCompletedLine()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var engine = CreatePricingEngine(
+            subtotalBeforeMargin: 200m,
+            minimumOrderPriceFloor: 0m,
+            setupCost: 100m);
+        var orchestrator = CreateOrchestrator(db, engine.Object);
+
+        var quantityOne = await orchestrator.CalculatePriceAsync(
+            CreateRequest(materialId, processId, quantity: 1));
+        var quantityFive = await orchestrator.CalculatePriceAsync(
+            CreateRequest(materialId, processId, quantity: 5));
+
+        Assert.Equal(200m, quantityOne.TotalAmount);
+        Assert.Equal(600m, quantityFive.TotalAmount);
+        Assert.Equal(120m, quantityFive.UnitPrice);
+        Assert.True(quantityFive.UnitPrice <= quantityOne.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_LeadTimeAndTolerance_ApplyToFixedSetupOnce()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        db.LeadTimeOptions.Add(new LeadTimeOption
+        {
+            Id = Guid.NewGuid(),
+            Code = "EXPRESS",
+            Name = "Express",
+            MinBusinessDays = 2,
+            MaxBusinessDays = 3,
+            PriceMultiplier = 1.3m,
+            IsActive = true,
+            SortOrder = 1,
+        });
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var engine = CreatePricingEngine(
+            subtotalBeforeMargin: 200m,
+            minimumOrderPriceFloor: 0m,
+            setupCost: 100m);
+        var orchestrator = CreateOrchestrator(db, engine.Object);
+        var request = CreateRequest(materialId, processId, quantity: 5) with
+        {
+            LeadTimeCode = "EXPRESS",
+            ToleranceAdditionalCostPercent = 10m,
+        };
+
+        var result = await orchestrator.CalculatePriceAsync(request);
+
+        Assert.Equal(858m, result.TotalAmount);
+        Assert.Equal(171.6m, result.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_SeededFdmPlaConfiguration_ChargesSetupOnceAndDiscountsOnlyVariableCost()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var configuration = PricingCatalogSeedData.GetPricingConfigurations()
+            .Single(candidate =>
+                candidate.MaterialCode == "PLA" &&
+                candidate.ManufacturingProcessCode == "FDM");
+        db.Configurations.Add(configuration);
+        db.VolumeDiscountTiers.AddRange(PricingCatalogSeedData.GetVolumeDiscountTiers());
+        db.MachineCapacityConfigs.AddRange(PricingCatalogSeedData.GetMachineCapacityConfigs());
+        await db.SaveChangesAsync();
+
+        var engine = new RuleBasedPricingEngine(
+            NullLogger<RuleBasedPricingEngine>.Instance,
+            new PricingCalculatorRegistry([new FdmPricingCalculator()]));
+        var orchestrator = CreateOrchestrator(db, engine);
+        var oneRequest = CreateRequest(configuration.MaterialId, configuration.ManufacturingProcessId, quantity: 1) with
+        {
+            Geometry = new GeometryMetrics
+            {
+                VolumeCm3 = 1_000m,
+                BoundingBoxZ = 100m,
+                IsManifold = true,
+            },
+        };
+        var fiveRequest = oneRequest with { Quantity = 5m };
+        var breakdown = (await engine.CalculateAsync(oneRequest, configuration, CancellationToken.None)).Breakdown;
+        var variableCost = breakdown.SubtotalBeforeMargin - breakdown.SetupCost;
+        var fixedSetupWithMargin = breakdown.SetupCost * configuration.MarginMultiplier;
+        var expectedOne = Math.Max(
+            variableCost * configuration.MarginMultiplier + fixedSetupWithMargin,
+            breakdown.MinimumOrderPriceFloor);
+        var expectedFive = Math.Max(
+            variableCost * configuration.MarginMultiplier * 0.95m * 5m + fixedSetupWithMargin,
+            breakdown.MinimumOrderPriceFloor);
+
+        var quantityOne = await orchestrator.CalculatePriceAsync(oneRequest);
+        var quantityFive = await orchestrator.CalculatePriceAsync(fiveRequest);
+
+        Assert.Equal(expectedOne, quantityOne.TotalAmount);
+        Assert.Equal(expectedFive, quantityFive.TotalAmount);
+        Assert.Equal(quantityFive.TotalAmount / fiveRequest.Quantity, quantityFive.UnitPrice);
+        Assert.True(quantityFive.UnitPrice <= quantityOne.UnitPrice);
     }
 
     [Fact]
@@ -263,7 +373,8 @@ public sealed class PricingOrchestratorQuantityTests
     private static Mock<IPricingEngine> CreatePricingEngine(
         decimal subtotalBeforeMargin,
         decimal minimumOrderPriceFloor,
-        Action<PricingConfiguration>? onConfigurationSelected = null)
+        Action<PricingConfiguration>? onConfigurationSelected = null,
+        decimal setupCost = 0m)
     {
         var engine = new Mock<IPricingEngine>();
         engine
@@ -275,10 +386,10 @@ public sealed class PricingOrchestratorQuantityTests
                 (_, configuration, _) => onConfigurationSelected?.Invoke(configuration))
             .ReturnsAsync(new EngineResult(
                 new CostBreakdown(
-                    MaterialCost: subtotalBeforeMargin,
+                    MaterialCost: subtotalBeforeMargin - setupCost,
                     SupportMaterialCost: 0m,
                     MachineTimeCost: 0m,
-                    SetupCost: 0m,
+                    SetupCost: setupCost,
                     DfmSurcharge: 0m,
                     ComplexitySurcharge: 0m,
                     SubtotalBeforeMargin: subtotalBeforeMargin,

@@ -144,15 +144,26 @@ public class PricingOrchestrator : IPricingOrchestrator
         var breakdown = engineResult.Breakdown;
 
         // ── Canonical Composition Order ──────────────────────────────────────────
-        // Step 1: breakdown.SubtotalBeforeMargin (from engine)
-        // Step 2: apply margin
-        decimal marginedUnitPrice = breakdown.SubtotalBeforeMargin * config.MarginMultiplier;
-        decimal marginAmount = marginedUnitPrice - breakdown.SubtotalBeforeMargin;
+        // Step 1: split the engine breakdown into variable per-unit cost and the
+        // fixed setup/tooling cost for the job. Calculators deliberately include
+        // SetupCost in SubtotalBeforeMargin so the breakdown remains additive,
+        // but setup must never be multiplied by quantity.
+        decimal fixedSetupCost = Math.Max(0m, breakdown.SetupCost);
+        decimal variableUnitCost = Math.Max(0m, breakdown.SubtotalBeforeMargin - fixedSetupCost);
 
-        // Step 3: volume discount (applied to margined list price, before surcharges)
+        // Step 2: apply margin to both cost classes. Fixed setup receives margin
+        // once for the completed line, while variable cost receives margin per unit.
+        decimal marginedVariableUnitPrice = variableUnitCost * config.MarginMultiplier;
+        decimal marginedFixedSetup = fixedSetupCost * config.MarginMultiplier;
+        decimal marginAmount =
+            (marginedVariableUnitPrice - variableUnitCost) +
+            ((marginedFixedSetup - fixedSetupCost) / request.Quantity);
+
+        // Step 3: volume discount applies only to variable production cost. Setup
+        // and tooling are one-time job costs and are not diluted by a volume tier.
         var (volumeTierId, volumeDiscountPct) = await _discountResolver.ResolveAsync((int)request.Quantity, cancellationToken);
-        decimal volumeDiscountAmount = marginedUnitPrice * volumeDiscountPct / 100m;
-        decimal discountedUnitPrice = marginedUnitPrice - volumeDiscountAmount;
+        decimal volumeDiscountAmount = marginedVariableUnitPrice * volumeDiscountPct / 100m;
+        decimal discountedVariableUnitPrice = marginedVariableUnitPrice - volumeDiscountAmount;
 
         // Step 4: apply lead-time and tolerance surcharges (on top of discounted list price)
         decimal leadTimeMultiplier = 1.0m;
@@ -179,10 +190,15 @@ public class PricingOrchestrator : IPricingOrchestrator
                 toleranceMultiplier, request.ToleranceCode);
         }
 
-        decimal surchargedUnitPrice = discountedUnitPrice * leadTimeMultiplier * toleranceMultiplier;
+        // Lead-time and tolerance multipliers price job urgency and inspection
+        // effort, so they apply to the completed variable and fixed portions. The
+        // fixed portion still appears exactly once in the line total.
+        decimal surchargeMultiplier = leadTimeMultiplier * toleranceMultiplier;
+        decimal surchargedVariableUnitPrice = discountedVariableUnitPrice * surchargeMultiplier;
+        decimal surchargedFixedSetup = marginedFixedSetup * surchargeMultiplier;
 
         // Step 5: apply minimum order price floor to the full line (in THB)
-        decimal rawTotalThb = surchargedUnitPrice * request.Quantity;
+        decimal rawTotalThb = surchargedVariableUnitPrice * request.Quantity + surchargedFixedSetup;
         decimal flooredTotalThb = Math.Max(rawTotalThb, breakdown.MinimumOrderPriceFloor);
         decimal flooredUnitPriceThb = flooredTotalThb / request.Quantity;
 
@@ -196,7 +212,9 @@ public class PricingOrchestrator : IPricingOrchestrator
         }
 
         decimal flooredUnitPrice = flooredUnitPriceThb * exchangeRate;
-        decimal unitPriceBeforeVolumeDiscount = marginedUnitPrice * leadTimeMultiplier * toleranceMultiplier * exchangeRate;
+        decimal unitPriceBeforeVolumeDiscount =
+            ((marginedVariableUnitPrice * request.Quantity + marginedFixedSetup) * surchargeMultiplier /
+             request.Quantity) * exchangeRate;
         decimal volumeDiscountUnitAmount = Math.Max(0m, unitPriceBeforeVolumeDiscount - flooredUnitPrice);
         decimal total = flooredTotalThb * exchangeRate;
 
