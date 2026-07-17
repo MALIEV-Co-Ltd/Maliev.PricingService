@@ -178,6 +178,7 @@ public sealed class PricingOrchestratorQuantityTests
         var orchestrator = CreateOrchestrator(db, engine);
         var oneRequest = CreateRequest(configuration.MaterialId, configuration.ManufacturingProcessId, quantity: 1) with
         {
+            Dfm = new DfmMetrics { ThinWallCount = 1 },
             Geometry = new GeometryMetrics
             {
                 VolumeCm3 = 1_000m,
@@ -187,8 +188,10 @@ public sealed class PricingOrchestratorQuantityTests
         };
         var fiveRequest = oneRequest with { Quantity = 5m };
         var breakdown = (await engine.CalculateAsync(oneRequest, configuration, CancellationToken.None)).Breakdown;
-        var variableCost = breakdown.SubtotalBeforeMargin - breakdown.SetupCost;
-        var fixedSetupWithMargin = breakdown.SetupCost * configuration.MarginMultiplier;
+        var fixedLineCost = breakdown.SetupCost + breakdown.FixedDfmSurcharge;
+        var variableCost = breakdown.SubtotalBeforeMargin - fixedLineCost;
+        var fixedSetupWithMargin = fixedLineCost * configuration.MarginMultiplier;
+        Assert.Equal(configuration.SetupCostFlat * 0.05m, breakdown.FixedDfmSurcharge);
         var expectedOne = Math.Max(
             variableCost * configuration.MarginMultiplier + fixedSetupWithMargin,
             breakdown.MinimumOrderPriceFloor);
