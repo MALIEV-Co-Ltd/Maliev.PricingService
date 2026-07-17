@@ -171,7 +171,7 @@ jobs:
           '
 
           test "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" = "true"
-          runtime_uid="$(docker top "$CONTAINER_NAME" -eo uid | awk 'NR == 2 { print $1 }')"
+          runtime_uid="$(docker top "$CONTAINER_NAME" -eo pid,uid | awk 'NR == 2 { print $2 }')"
           [[ "$runtime_uid" =~ ^[0-9]+$ ]]
           test "$runtime_uid" != "0"
 

@@ -58,7 +58,8 @@ public sealed class ContainerWorkflowContractTests
 
         Assert.Contains("timeout 90", workflow, StringComparison.Ordinal);
         Assert.Contains("docker run --detach", workflow, StringComparison.Ordinal);
-        Assert.Contains("docker top \"$CONTAINER_NAME\" -eo uid", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker top \"$CONTAINER_NAME\" -eo pid,uid", workflow, StringComparison.Ordinal);
+        Assert.Contains("awk 'NR == 2 { print $2 }'", workflow, StringComparison.Ordinal);
         Assert.Contains("test \"$runtime_uid\" != \"0\"", workflow, StringComparison.Ordinal);
         Assert.Contains("--env CORS__AllowedOrigins=http://127.0.0.1", workflow, StringComparison.Ordinal);
         Assert.Contains("openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048", workflow, StringComparison.Ordinal);
