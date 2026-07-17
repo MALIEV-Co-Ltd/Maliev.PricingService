@@ -28,6 +28,8 @@ public sealed class PricingConfigurationDatabaseFixture : IAsyncLifetime
         .WithDatabase("pricing_configuration_tests")
         .Build();
 
+    public string ConnectionString => _postgresContainer.GetConnectionString();
+
     public Task InitializeAsync() => _postgresContainer.StartAsync();
 
     public Task DisposeAsync() => _postgresContainer.DisposeAsync().AsTask();
