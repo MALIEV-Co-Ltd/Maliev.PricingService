@@ -121,6 +121,10 @@ jobs:
           export POSTGRES_CONTAINER_NAME
           timeout 60 bash -c '
             until docker exec "$POSTGRES_CONTAINER_NAME" pg_isready --username pricing_smoke --dbname pricing_smoke >/dev/null 2>&1; do
+              if [ "$(docker inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME")" != "true" ]; then
+                echo "PostgreSQL smoke dependency exited before becoming ready." >&2
+                exit 1
+              fi
               sleep 1
             done
           '
@@ -131,6 +135,7 @@ jobs:
             --publish 127.0.0.1:8080:8080 \
             --env ASPNETCORE_ENVIRONMENT=Testing \
             --env Cache__RedisEnabled=false \
+            --env CORS__AllowedOrigins=http://127.0.0.1 \
             --env MassTransit__UseInMemory=true \
             --env "ConnectionStrings__PricingDbContext=Host=$POSTGRES_CONTAINER_NAME;Port=5432;Database=pricing_smoke;Username=pricing_smoke;Password=pricing_smoke" \
             "$IMAGE_TAG" >/dev/null
@@ -138,7 +143,10 @@ jobs:
           export CONTAINER_NAME
           timeout 90 bash -c '
             until curl --fail --silent --show-error http://127.0.0.1:8080/pricing/liveness >/dev/null; do
-              test "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" = "true"
+              if [ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" != "true" ]; then
+                echo "PricingService container exited before liveness succeeded." >&2
+                exit 1
+              fi
               sleep 2
             done
           '
