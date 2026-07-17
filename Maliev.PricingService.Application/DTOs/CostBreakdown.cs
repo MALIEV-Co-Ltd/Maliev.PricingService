@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Maliev.PricingService.Application.DTOs;
 
 public sealed record CostBreakdown(
@@ -8,4 +10,8 @@ public sealed record CostBreakdown(
     decimal DfmSurcharge,
     decimal ComplexitySurcharge,
     decimal SubtotalBeforeMargin,
-    decimal MinimumOrderPriceFloor);
+    decimal MinimumOrderPriceFloor)
+{
+    [JsonIgnore]
+    public decimal FixedDfmSurcharge { get; init; }
+}

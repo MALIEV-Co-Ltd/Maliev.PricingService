@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Maliev.PricingService.Application.DTOs;
 using Maliev.PricingService.Application.Services;
 
@@ -26,6 +28,19 @@ public class CostBreakdownTests
 
         Assert.Equal(360m, bd.MaterialCost + bd.SupportMaterialCost + bd.MachineTimeCost
             + bd.SetupCost + bd.DfmSurcharge + bd.ComplexitySurcharge);
+    }
+
+    [Fact]
+    public void CostBreakdown_FixedDfmAllocation_DoesNotChangeSerializedContract()
+    {
+        var breakdown = new CostBreakdown(1m, 2m, 3m, 4m, 5m, 6m, 21m, 10m)
+        {
+            FixedDfmSurcharge = 1m
+        };
+
+        var json = JsonSerializer.Serialize(breakdown);
+
+        Assert.DoesNotContain(nameof(CostBreakdown.FixedDfmSurcharge), json, StringComparison.Ordinal);
     }
 
     // ── FDM: material split into part + support ───────────────────────────────
@@ -74,8 +89,11 @@ public class CostBreakdownTests
         var ctx = new PricingContext(
             new GeometryMetrics
             {
-                VolumeCm3 = 2m, SurfaceAreaCm2 = 100m,
-                BoundingBoxX = 50m, BoundingBoxY = 50m, BoundingBoxZ = 2m
+                VolumeCm3 = 2m,
+                SurfaceAreaCm2 = 100m,
+                BoundingBoxX = 50m,
+                BoundingBoxY = 50m,
+                BoundingBoxZ = 2m
             },
             MaterialPricePerCm3: 5.0m, MachineHourlyRate: 500m,
             SetupFee: 0m, MinimumOrderPrice: 0m, Dfm: null,
@@ -98,8 +116,11 @@ public class CostBreakdownTests
         var ctx = new PricingContext(
             new GeometryMetrics
             {
-                VolumeCm3 = 1000m, SurfaceAreaCm2 = 600m,
-                BoundingBoxX = 100m, BoundingBoxY = 100m, BoundingBoxZ = 100m
+                VolumeCm3 = 1000m,
+                SurfaceAreaCm2 = 600m,
+                BoundingBoxX = 100m,
+                BoundingBoxY = 100m,
+                BoundingBoxZ = 100m
             },
             MaterialPricePerCm3: 5.0m, MachineHourlyRate: 500m,
             SetupFee: 0m, MinimumOrderPrice: 0m, Dfm: null,

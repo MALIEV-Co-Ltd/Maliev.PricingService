@@ -89,6 +89,7 @@ public class PricingDbContext : DbContext, IPricingDbContext
             builder.Property(x => x.SupportMaterialCost).HasPrecision(18, 2);
             builder.Property(x => x.MachineTimeCost).HasPrecision(18, 2);
             builder.Property(x => x.SetupCost).HasPrecision(18, 2);
+            builder.Property(x => x.FixedDfmSurcharge).HasPrecision(18, 2);
             builder.Property(x => x.ComplexitySurcharge).HasPrecision(18, 2);
             builder.Property(x => x.SubtotalBeforeMargin).HasPrecision(18, 2);
             builder.Property(x => x.MarginAmount).HasPrecision(18, 2);

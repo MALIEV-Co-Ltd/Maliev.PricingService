@@ -46,11 +46,13 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
         SeedPricingConfiguration(materialId, processId);
         var db = _db ?? throw new InvalidOperationException("Test database was not initialized.");
 
+        PriceCalculatedEvent? publishedEvent = null;
         var publishEndpoint = new Mock<IPublishEndpoint>();
         publishEndpoint
             .Setup(endpoint => endpoint.Publish(
                 It.IsAny<PriceCalculatedEvent>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEvent, CancellationToken>((message, _) => publishedEvent = message)
             .ThrowsAsync(new TaskCanceledException("Publisher confirm timed out."));
 
         var logger = new Mock<ILogger<PricingOrchestrator>>();
@@ -66,6 +68,11 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
         var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId));
 
         Assert.NotEqual(Guid.Empty, result.AuditId);
+        var auditRecord = await db.AuditRecords.SingleAsync(candidate => candidate.Id == result.AuditId);
+        Assert.Equal(25m, auditRecord.SetupCost);
+        Assert.Equal(1.25m, auditRecord.FixedDfmSurcharge);
+        Assert.NotNull(publishedEvent);
+        Assert.Equal(25d, publishedEvent.Payload.Breakdown.SetupCost);
         VerifyNoLogLevel(logger, LogLevel.Warning);
         VerifyLogLevel(logger, LogLevel.Debug);
     }
@@ -120,10 +127,13 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
                     SupportMaterialCost: 0m,
                     MachineTimeCost: 5m,
                     SetupCost: 25m,
-                    DfmSurcharge: 0m,
+                    DfmSurcharge: 1.25m,
                     ComplexitySurcharge: 0m,
-                    SubtotalBeforeMargin: 40m,
-                    MinimumOrderPriceFloor: 10m),
+                    SubtotalBeforeMargin: 41.25m,
+                    MinimumOrderPriceFloor: 10m)
+                {
+                    FixedDfmSurcharge = 1.25m
+                },
                 "TestEngine"));
         return engine.Object;
     }

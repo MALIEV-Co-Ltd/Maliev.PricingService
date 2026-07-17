@@ -9,6 +9,20 @@ public interface IPricingCalculator
     CostBreakdown Calculate(PricingContext ctx);
 }
 
+file static class DfmCostAllocator
+{
+    public static (decimal TotalSurcharge, decimal FixedSurcharge, decimal Subtotal) Allocate(
+        decimal variableBase,
+        decimal setupFee,
+        decimal surchargePercent)
+    {
+        var surchargeRate = surchargePercent / 100m;
+        var fixedSurcharge = setupFee * surchargeRate;
+        var totalSurcharge = (variableBase + setupFee) * surchargeRate;
+        return (totalSurcharge, fixedSurcharge, variableBase + setupFee + totalSurcharge);
+    }
+}
+
 public class FdmPricingCalculator : IPricingCalculator
 {
     public string TechnologyName => "FDM";
@@ -47,7 +61,7 @@ public class FdmPricingCalculator : IPricingCalculator
         decimal printTimeHours = effectiveLayerTime * totalLayers / 3600;
 
         decimal machineTimeCost = printTimeHours * ctx.MachineHourlyRate;
-        decimal baseForDfm = partMatCost + suppMatCost + machineTimeCost + ctx.SetupFee;
+        decimal variableBaseForDfm = partMatCost + suppMatCost + machineTimeCost;
 
         decimal dfmSurchargePercent = 0m;
         if (ctx.Dfm != null)
@@ -59,18 +73,20 @@ public class FdmPricingCalculator : IPricingCalculator
                 dfmSurchargePercent = Math.Max(dfmSurchargePercent, 15m);
         }
 
-        decimal dfmSurcharge = baseForDfm * dfmSurchargePercent / 100m;
-        decimal subTotal = baseForDfm + dfmSurcharge;
+        var dfmCosts = DfmCostAllocator.Allocate(variableBaseForDfm, ctx.SetupFee, dfmSurchargePercent);
 
         return new CostBreakdown(
             MaterialCost: partMatCost,
             SupportMaterialCost: suppMatCost,
             MachineTimeCost: machineTimeCost,
             SetupCost: ctx.SetupFee,
-            DfmSurcharge: dfmSurcharge,
+            DfmSurcharge: dfmCosts.TotalSurcharge,
             ComplexitySurcharge: 0m,
-            SubtotalBeforeMargin: subTotal,
-            MinimumOrderPriceFloor: ctx.MinimumOrderPrice);
+            SubtotalBeforeMargin: dfmCosts.Subtotal,
+            MinimumOrderPriceFloor: ctx.MinimumOrderPrice)
+        {
+            FixedDfmSurcharge = dfmCosts.FixedSurcharge
+        };
     }
 }
 
@@ -106,7 +122,7 @@ public class SlaPricingCalculator : IPricingCalculator
             suppMatCost = ctx.Geometry.SupportVolumeCm3 * supportCostPerCm3;
 
         decimal machineTimeCost = printTimeHours * ctx.MachineHourlyRate;
-        decimal baseForDfm = materialCost + suppMatCost + machineTimeCost + ctx.SetupFee;
+        decimal variableBaseForDfm = materialCost + suppMatCost + machineTimeCost;
 
         decimal dfmSurchargePercent = 0m;
         if (ctx.Dfm != null)
@@ -117,18 +133,20 @@ public class SlaPricingCalculator : IPricingCalculator
                 dfmSurchargePercent += Math.Min(ctx.Dfm.ThinWallCount * 3m, 10m);
         }
 
-        decimal dfmSurcharge = baseForDfm * dfmSurchargePercent / 100m;
-        decimal subTotal = baseForDfm + dfmSurcharge;
+        var dfmCosts = DfmCostAllocator.Allocate(variableBaseForDfm, ctx.SetupFee, dfmSurchargePercent);
 
         return new CostBreakdown(
             MaterialCost: materialCost,
             SupportMaterialCost: suppMatCost,
             MachineTimeCost: machineTimeCost,
             SetupCost: ctx.SetupFee,
-            DfmSurcharge: dfmSurcharge,
+            DfmSurcharge: dfmCosts.TotalSurcharge,
             ComplexitySurcharge: 0m,
-            SubtotalBeforeMargin: subTotal,
-            MinimumOrderPriceFloor: ctx.MinimumOrderPrice);
+            SubtotalBeforeMargin: dfmCosts.Subtotal,
+            MinimumOrderPriceFloor: ctx.MinimumOrderPrice)
+        {
+            FixedDfmSurcharge = dfmCosts.FixedSurcharge
+        };
     }
 }
 
@@ -179,7 +197,7 @@ public class CncPricingCalculator : IPricingCalculator
             }
         }
 
-        decimal baseForDfm = materialCost + machineTimeCost + ctx.SetupFee;
+        decimal variableBaseForDfm = materialCost + machineTimeCost;
         decimal dfmSurchargePercent = 0m;
         if (ctx.Dfm != null)
         {
@@ -190,18 +208,20 @@ public class CncPricingCalculator : IPricingCalculator
             if (ctx.Dfm.RequiresGrinding) dfmSurchargePercent += 15m;
         }
 
-        decimal dfmSurcharge = baseForDfm * dfmSurchargePercent / 100m;
-        decimal subTotal = baseForDfm + dfmSurcharge + complexitySurcharge;
+        var dfmCosts = DfmCostAllocator.Allocate(variableBaseForDfm, ctx.SetupFee, dfmSurchargePercent);
 
         return new CostBreakdown(
             MaterialCost: materialCost,
             SupportMaterialCost: 0m,
             MachineTimeCost: machineTimeCost,
             SetupCost: ctx.SetupFee,
-            DfmSurcharge: dfmSurcharge,
+            DfmSurcharge: dfmCosts.TotalSurcharge,
             ComplexitySurcharge: complexitySurcharge,
-            SubtotalBeforeMargin: subTotal,
-            MinimumOrderPriceFloor: ctx.MinimumOrderPrice);
+            SubtotalBeforeMargin: dfmCosts.Subtotal + complexitySurcharge,
+            MinimumOrderPriceFloor: ctx.MinimumOrderPrice)
+        {
+            FixedDfmSurcharge = dfmCosts.FixedSurcharge
+        };
     }
 }
 
@@ -245,19 +265,21 @@ public class CncTurnPricingCalculator : IPricingCalculator
             if (ctx.Dfm.HasUndercuts) dfmSurchargePercent += 20m;
         }
 
-        decimal baseForDfm = materialCost + machineTimeCost + ctx.SetupFee;
-        decimal dfmSurcharge = baseForDfm * dfmSurchargePercent / 100m;
-        decimal subTotal = baseForDfm + dfmSurcharge;
+        decimal variableBaseForDfm = materialCost + machineTimeCost;
+        var dfmCosts = DfmCostAllocator.Allocate(variableBaseForDfm, ctx.SetupFee, dfmSurchargePercent);
 
         return new CostBreakdown(
             MaterialCost: materialCost,
             SupportMaterialCost: 0m,
             MachineTimeCost: machineTimeCost,
             SetupCost: ctx.SetupFee,
-            DfmSurcharge: dfmSurcharge,
+            DfmSurcharge: dfmCosts.TotalSurcharge,
             ComplexitySurcharge: 0m,
-            SubtotalBeforeMargin: subTotal,
-            MinimumOrderPriceFloor: ctx.MinimumOrderPrice);
+            SubtotalBeforeMargin: dfmCosts.Subtotal,
+            MinimumOrderPriceFloor: ctx.MinimumOrderPrice)
+        {
+            FixedDfmSurcharge = dfmCosts.FixedSurcharge
+        };
     }
 }
 
@@ -435,7 +457,7 @@ public class DmlsPricingCalculator : IPricingCalculator
 
         decimal printTimeHours = totalLayers * secondsPerLayer / 3600m;
         decimal machineTimeCost = printTimeHours * ctx.MachineHourlyRate;
-        decimal baseForDfm = materialCost + suppMatCost + machineTimeCost + ctx.SetupFee;
+        decimal variableBaseForDfm = materialCost + suppMatCost + machineTimeCost;
 
         decimal dfmSurchargePercent = 0m;
         if (ctx.Dfm != null)
@@ -445,18 +467,20 @@ public class DmlsPricingCalculator : IPricingCalculator
                 dfmSurchargePercent += Math.Min(ctx.Dfm.ThinWallCount * 3m, 15m);
         }
 
-        decimal dfmSurcharge = baseForDfm * dfmSurchargePercent / 100m;
-        decimal subTotal = baseForDfm + dfmSurcharge;
+        var dfmCosts = DfmCostAllocator.Allocate(variableBaseForDfm, ctx.SetupFee, dfmSurchargePercent);
 
         return new CostBreakdown(
             MaterialCost: materialCost,
             SupportMaterialCost: suppMatCost,
             MachineTimeCost: machineTimeCost,
             SetupCost: ctx.SetupFee,
-            DfmSurcharge: dfmSurcharge,
+            DfmSurcharge: dfmCosts.TotalSurcharge,
             ComplexitySurcharge: 0m,
-            SubtotalBeforeMargin: subTotal,
-            MinimumOrderPriceFloor: ctx.MinimumOrderPrice);
+            SubtotalBeforeMargin: dfmCosts.Subtotal,
+            MinimumOrderPriceFloor: ctx.MinimumOrderPrice)
+        {
+            FixedDfmSurcharge = dfmCosts.FixedSurcharge
+        };
     }
 }
 
