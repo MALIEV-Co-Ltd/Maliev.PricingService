@@ -60,8 +60,17 @@ public sealed class ContainerWorkflowContractTests
         Assert.Contains("docker run --detach", workflow, StringComparison.Ordinal);
         Assert.Contains("docker top \"$CONTAINER_NAME\" -eo uid", workflow, StringComparison.Ordinal);
         Assert.Contains("test \"$runtime_uid\" != \"0\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("--env CORS__AllowedOrigins=http://127.0.0.1", workflow, StringComparison.Ordinal);
         Assert.Contains("http://127.0.0.1:8080/pricing/liveness", workflow, StringComparison.Ordinal);
         Assert.Contains("docker inspect --format '{{.State.Running}}'", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "if [ \"$(docker inspect --format '{{.State.Running}}' \"$POSTGRES_CONTAINER_NAME\")\" != \"true\" ]; then",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if [ \"$(docker inspect --format '{{.State.Running}}' \"$CONTAINER_NAME\")\" != \"true\" ]; then",
+            workflow,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
