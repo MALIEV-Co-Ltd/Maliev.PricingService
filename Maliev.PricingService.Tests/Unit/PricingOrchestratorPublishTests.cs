@@ -95,20 +95,26 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
         Assert.Equal(publishedV1.OccurredAtUtc, publishedV2.OccurredAtUtc);
         Assert.Equal(publishedV1.Payload.CalculatedAt, publishedV2.Payload.CalculatedAt);
         Assert.Equal(25d, publishedV2.Payload.Breakdown.SetupCost);
+        Assert.Equal(0d, publishedV2.Payload.Breakdown.VariableDfmSurcharge);
         Assert.Equal(1.25d, publishedV2.Payload.Breakdown.FixedDfmSurcharge);
+        Assert.Equal(1.5d, publishedV2.Payload.Breakdown.MarginMultiplier);
+        Assert.Equal(0d, publishedV2.Payload.Breakdown.VolumeDiscountPercent);
+        Assert.Equal(1d, publishedV2.Payload.Breakdown.LeadTimeMultiplier);
+        Assert.Equal(1d, publishedV2.Payload.Breakdown.ToleranceMultiplier);
+        Assert.Equal(10d, publishedV2.Payload.Breakdown.MinimumOrderPriceFloorThb);
+        Assert.Equal(1d, publishedV2.Payload.Breakdown.ExchangeRate);
+        Assert.Equal("THB", publishedV2.Payload.Breakdown.BaseCurrency);
 
-        var reconstructedSubtotal =
+        var reconstructedSubtotal = (
             publishedV2.Payload.Breakdown.MaterialCost +
             publishedV2.Payload.Breakdown.SupportCost +
             publishedV2.Payload.Breakdown.MachineTimeCost +
+            publishedV2.Payload.Breakdown.VariableDfmSurcharge +
+            publishedV2.Payload.Breakdown.ComplexitySurcharge) * publishedV2.Payload.Quantity +
             publishedV2.Payload.Breakdown.SetupCost +
-            publishedV2.Payload.Breakdown.FixedDfmSurcharge +
-            publishedV2.Payload.Breakdown.ComplexitySurcharge;
+            publishedV2.Payload.Breakdown.FixedDfmSurcharge;
         Assert.Equal(publishedV2.Payload.Breakdown.SubtotalBeforeMargin, reconstructedSubtotal, precision: 8);
-        Assert.Equal(
-            publishedV2.Payload.Breakdown.TotalPrice,
-            publishedV2.Payload.Breakdown.SubtotalBeforeMargin + publishedV2.Payload.Breakdown.MarginAmount,
-            precision: 8);
+        Assert.Equal(reconstructedSubtotal * 0.5d, publishedV2.Payload.Breakdown.MarginAmount, precision: 8);
         Assert.Equal(result.TotalAmount, (decimal)publishedV2.Payload.TotalPrice);
 
         publishEndpoint.Verify(
@@ -121,7 +127,7 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CalculatePriceAsync_WhenV2PublishFails_PreservesV1DeliveryAndReturnsResult()
+    public async Task CalculatePriceAsync_WhenV2EnqueueFails_DoesNotCommitPricingState()
     {
         var materialId = Guid.NewGuid();
         var processId = Guid.NewGuid();
@@ -155,13 +161,14 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
             new VolumeDiscountResolver(db),
             CreateCurrencyServiceClient());
 
-        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId)));
 
-        Assert.NotEqual(Guid.Empty, result.AuditId);
         Assert.NotNull(publishedV1);
         Assert.Equal("PriceCalculatedEvent", publishedV1.MessageName);
         Assert.Equal("1.0.0", publishedV1.MessageVersion);
-        VerifyLogLevel(logger, LogLevel.Warning);
+        Assert.Equal(0, await db.AuditRecords.CountAsync());
+        Assert.Equal(0, await db.Snapshots.CountAsync());
         publishEndpoint.Verify(
             endpoint => endpoint.Publish(It.IsAny<PriceCalculatedEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -172,7 +179,7 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CalculatePriceAsync_WhenPriceCalculatedPublishIsCanceled_ReturnsResultWithoutWarning()
+    public async Task CalculatePriceAsync_WhenV1EnqueueIsCanceled_DoesNotCommitOrAttemptV2()
     {
         var materialId = Guid.NewGuid();
         var processId = Guid.NewGuid();
@@ -205,18 +212,15 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
             new VolumeDiscountResolver(db),
             CreateCurrencyServiceClient());
 
-        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId));
+        await Assert.ThrowsAsync<TaskCanceledException>(
+            () => orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId)));
 
-        Assert.NotEqual(Guid.Empty, result.AuditId);
-        var auditRecord = await db.AuditRecords.SingleAsync(candidate => candidate.Id == result.AuditId);
-        Assert.Equal(25m, auditRecord.SetupCost);
-        Assert.Equal(1.25m, auditRecord.FixedDfmSurcharge);
         Assert.NotNull(publishedEvent);
         Assert.Equal(25d, publishedEvent.Payload.Breakdown.SetupCost);
-        Assert.NotNull(publishedV2);
-        Assert.Equal(1.25d, publishedV2.Payload.Breakdown.FixedDfmSurcharge);
+        Assert.Null(publishedV2);
+        Assert.Equal(0, await db.AuditRecords.CountAsync());
+        Assert.Equal(0, await db.Snapshots.CountAsync());
         VerifyNoLogLevel(logger, LogLevel.Warning);
-        VerifyLogLevel(logger, LogLevel.Debug);
     }
 
     private void SeedPricingConfiguration(Guid materialId, Guid processId)

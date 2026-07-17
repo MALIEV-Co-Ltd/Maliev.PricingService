@@ -1,5 +1,6 @@
 using System.Net;
 using Maliev.Aspire.ServiceDefaults.IAM;
+using Maliev.MessagingContracts.Contracts.Pricing;
 using Maliev.PricingService.Application.DTOs;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Application.Services;
@@ -212,11 +213,98 @@ public sealed class PricingOrchestratorQuantityTests
         Assert.Equal(breakdown.SetupCost, quantityFiveAudit.SetupCost);
         Assert.Equal(breakdown.FixedDfmSurcharge, quantityFiveAudit.FixedDfmSurcharge);
         var reconstructedTotal = Math.Max(
-            (quantityFiveAudit.SubtotalBeforeMargin - quantityFiveAudit.SetupCost - quantityFiveAudit.FixedDfmSurcharge) *
+            (quantityFiveAudit.MaterialCost + quantityFiveAudit.SupportMaterialCost + quantityFiveAudit.MachineTimeCost +
+             quantityFiveAudit.VariableDfmSurcharge + quantityFiveAudit.ComplexitySurcharge) *
             configuration.MarginMultiplier * 0.95m * fiveRequest.Quantity +
             (quantityFiveAudit.SetupCost + quantityFiveAudit.FixedDfmSurcharge) * configuration.MarginMultiplier,
-            breakdown.MinimumOrderPriceFloor);
+            quantityFiveAudit.MinimumOrderPriceFloorThb);
         Assert.Equal(quantityFiveAudit.TotalPrice, reconstructedTotal);
+        Assert.Equal(breakdown.SubtotalBeforeMargin, quantityFiveAudit.SubtotalBeforeMargin);
+        Assert.Equal(
+            (variableCost * (configuration.MarginMultiplier - 1m)) +
+            (fixedLineCost * (configuration.MarginMultiplier - 1m) / fiveRequest.Quantity),
+            quantityFiveAudit.MarginAmount);
+        Assert.Equal(variableCost * fiveRequest.Quantity + fixedLineCost, quantityFiveAudit.LineSubtotalBeforeMarginThb);
+        Assert.Equal(
+            quantityFiveAudit.LineSubtotalBeforeMarginThb * (configuration.MarginMultiplier - 1m),
+            quantityFiveAudit.LineMarginAmountThb);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_SeededFdmV2_ReconstructsCommercialLineAcrossQuantityAndFx()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var configuration = PricingCatalogSeedData.GetPricingConfigurations()
+            .Single(candidate => candidate.MaterialCode == "PLA" && candidate.ManufacturingProcessCode == "FDM");
+        configuration.MinimumOrderPrice = 1_000m;
+        db.Configurations.Add(configuration);
+        db.VolumeDiscountTiers.AddRange(PricingCatalogSeedData.GetVolumeDiscountTiers());
+        db.LeadTimeOptions.AddRange(PricingCatalogSeedData.GetLeadTimeOptions());
+        db.MachineCapacityConfigs.AddRange(PricingCatalogSeedData.GetMachineCapacityConfigs());
+        await db.SaveChangesAsync();
+
+        PriceCalculatedEventV2? publishedV2 = null;
+        var publishEndpoint = new Mock<IPublishEndpoint>();
+        publishEndpoint
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEventV2>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEventV2, CancellationToken>((message, _) => publishedV2 = message)
+            .Returns(Task.CompletedTask);
+        var engine = new RuleBasedPricingEngine(
+            NullLogger<RuleBasedPricingEngine>.Instance,
+            new PricingCalculatorRegistry([new FdmPricingCalculator()]));
+        var orchestrator = CreateOrchestrator(db, engine, exchangeRate: 2m, publishEndpoint: publishEndpoint.Object);
+        var request = CreateRequest(configuration.MaterialId, configuration.ManufacturingProcessId, quantity: 5) with
+        {
+            Currency = "USD",
+            LeadTimeCode = "EXPRESS",
+            ToleranceCode = "IT7",
+            ToleranceAdditionalCostPercent = 10m,
+            Dfm = new DfmMetrics { ThinWallCount = 1 },
+        };
+
+        var result = await orchestrator.CalculatePriceAsync(request);
+        var audit = await db.AuditRecords.SingleAsync(candidate => candidate.Id == result.AuditId);
+        Assert.NotNull(publishedV2);
+        var pricing = publishedV2.Payload.Breakdown;
+
+        Assert.True(pricing.VariableDfmSurcharge > 0d);
+        Assert.True(pricing.FixedDfmSurcharge > 0d);
+        Assert.Equal(5d, pricing.VolumeDiscountPercent);
+        Assert.Equal(1.3d, pricing.LeadTimeMultiplier);
+        Assert.Equal(1.1d, pricing.ToleranceMultiplier);
+        Assert.Equal(1_000d, pricing.MinimumOrderPriceFloorThb);
+        Assert.Equal(2d, pricing.ExchangeRate);
+        Assert.Equal("THB", pricing.BaseCurrency);
+
+        var variableUnitThb = pricing.MaterialCost + pricing.SupportCost + pricing.MachineTimeCost +
+                              pricing.VariableDfmSurcharge + pricing.ComplexitySurcharge;
+        var reconstructedLineSubtotal = variableUnitThb * publishedV2.Payload.Quantity +
+                                        pricing.SetupCost + pricing.FixedDfmSurcharge;
+        var reconstructedLineMargin = reconstructedLineSubtotal * (pricing.MarginMultiplier - 1d);
+        var discountedVariableLine = variableUnitThb * pricing.MarginMultiplier *
+                                     (1d - pricing.VolumeDiscountPercent / 100d) * publishedV2.Payload.Quantity;
+        var marginedFixedLine = (pricing.SetupCost + pricing.FixedDfmSurcharge) * pricing.MarginMultiplier;
+        var surchargedLineThb = (discountedVariableLine + marginedFixedLine) *
+                                pricing.LeadTimeMultiplier * pricing.ToleranceMultiplier;
+        var reconstructedTotal = Math.Max(surchargedLineThb, pricing.MinimumOrderPriceFloorThb) * pricing.ExchangeRate;
+
+        Assert.True(surchargedLineThb < pricing.MinimumOrderPriceFloorThb);
+        Assert.Equal(pricing.MinimumOrderPriceFloorThb * pricing.ExchangeRate, reconstructedTotal, precision: 8);
+        Assert.Equal(reconstructedLineSubtotal, pricing.SubtotalBeforeMargin, precision: 8);
+        Assert.Equal(reconstructedLineMargin, pricing.MarginAmount, precision: 8);
+        Assert.Equal(reconstructedTotal, pricing.TotalPrice, precision: 8);
+        Assert.Equal(reconstructedTotal, publishedV2.Payload.TotalPrice, precision: 8);
+        Assert.Equal(reconstructedTotal / publishedV2.Payload.Quantity, publishedV2.Payload.TotalUnitPrice, precision: 8);
+        Assert.Equal(result.TotalAmount, (decimal)reconstructedTotal);
+
+        Assert.Equal(pricing.VariableDfmSurcharge, (double)audit.VariableDfmSurcharge, precision: 8);
+        Assert.Equal(pricing.LeadTimeMultiplier, (double)audit.LeadTimeMultiplier, precision: 8);
+        Assert.Equal(pricing.ToleranceMultiplier, (double)audit.ToleranceMultiplier, precision: 8);
+        Assert.Equal(pricing.MinimumOrderPriceFloorThb, (double)audit.MinimumOrderPriceFloorThb, precision: 8);
+        Assert.Equal(pricing.SubtotalBeforeMargin, (double)audit.LineSubtotalBeforeMarginThb, precision: 8);
+        Assert.Equal(pricing.MarginAmount, (double)audit.LineMarginAmountThb, precision: 8);
     }
 
     [Fact]
@@ -442,7 +530,8 @@ public sealed class PricingOrchestratorQuantityTests
         IPricingEngine engine,
         ILogger<PricingOrchestrator>? logger = null,
         decimal exchangeRate = 1m,
-        IJobServiceClient? jobServiceClient = null)
+        IJobServiceClient? jobServiceClient = null,
+        IPublishEndpoint? publishEndpoint = null)
     {
         if (jobServiceClient is null)
         {
@@ -455,7 +544,7 @@ public sealed class PricingOrchestratorQuantityTests
             jobServiceClient = defaultJobServiceClient.Object;
         }
 
-        var publishEndpoint = new Mock<IPublishEndpoint>();
+        var defaultPublishEndpoint = new Mock<IPublishEndpoint>();
         var currencyClient = new Mock<ICurrencyServiceClient>();
         currencyClient
             .Setup(client => client.GetExchangeRateAsync(
@@ -469,7 +558,7 @@ public sealed class PricingOrchestratorQuantityTests
             engine,
             jobServiceClient,
             logger ?? NullLogger<PricingOrchestrator>.Instance,
-            publishEndpoint.Object,
+            publishEndpoint ?? defaultPublishEndpoint.Object,
             new VolumeDiscountResolver(db),
             currencyClient.Object);
     }

@@ -90,15 +90,21 @@ public class PricingDbContext : DbContext, IPricingDbContext
             builder.Property(x => x.MachineTimeCost).HasPrecision(18, 2);
             builder.Property(x => x.SetupCost).HasPrecision(18, 2);
             builder.Property(x => x.FixedDfmSurcharge).HasPrecision(18, 2);
+            builder.Property(x => x.VariableDfmSurcharge).HasPrecision(18, 2);
             builder.Property(x => x.ComplexitySurcharge).HasPrecision(18, 2);
             builder.Property(x => x.SubtotalBeforeMargin).HasPrecision(18, 2);
             builder.Property(x => x.MarginAmount).HasPrecision(18, 2);
+            builder.Property(x => x.LineSubtotalBeforeMarginThb).HasPrecision(18, 2);
+            builder.Property(x => x.LineMarginAmountThb).HasPrecision(18, 2);
             builder.Property(x => x.TotalUnitPrice).HasPrecision(18, 2);
             builder.Property(x => x.TotalPrice).HasPrecision(18, 2);
             builder.Property(x => x.ConfigMaterialPricePerCm3).HasPrecision(18, 6);
             builder.Property(x => x.ConfigSupportPricePerCm3).HasPrecision(18, 6);
             builder.Property(x => x.ConfigMachineHourlyRate).HasPrecision(18, 2);
             builder.Property(x => x.ConfigMarginMultiplier).HasPrecision(18, 2);
+            builder.Property(x => x.LeadTimeMultiplier).HasPrecision(18, 4).HasDefaultValue(1m);
+            builder.Property(x => x.ToleranceMultiplier).HasPrecision(18, 4).HasDefaultValue(1m);
+            builder.Property(x => x.MinimumOrderPriceFloorThb).HasPrecision(18, 2);
             builder.Property(x => x.ConfidenceLevel).HasPrecision(18, 2);
         });
 

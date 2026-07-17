@@ -199,6 +199,12 @@ public class PricingAuditRecord
     public decimal FixedDfmSurcharge { get; set; }
 
     /// <summary>
+    /// Per-unit DFM surcharge excluding the one-time setup-derived component.
+    /// </summary>
+    [Range(0, 10000000)]
+    public decimal VariableDfmSurcharge { get; set; }
+
+    /// <summary>
     /// Surcharge for complex geometry.
     /// </summary>
     [Range(0, 10000000)]
@@ -217,6 +223,18 @@ public class PricingAuditRecord
     public decimal MarginAmount { get; set; }
 
     /// <summary>
+    /// Full THB line subtotal before margin, including quantity and one-time fixed costs.
+    /// </summary>
+    [Range(0, 1000000000)]
+    public decimal LineSubtotalBeforeMarginThb { get; set; }
+
+    /// <summary>
+    /// Full THB line margin before volume discount.
+    /// </summary>
+    [Range(0, 1000000000)]
+    public decimal LineMarginAmountThb { get; set; }
+
+    /// <summary>
     /// Volume discount tier applied, if any.
     /// </summary>
     public Guid? VolumeDiscountTierId { get; set; }
@@ -232,6 +250,24 @@ public class PricingAuditRecord
     /// </summary>
     [Range(0, 100000000)]
     public decimal VolumeDiscountAmount { get; set; }
+
+    /// <summary>
+    /// Lead-time multiplier applied to the completed line price.
+    /// </summary>
+    [Range(0, 100)]
+    public decimal LeadTimeMultiplier { get; set; } = 1m;
+
+    /// <summary>
+    /// Tolerance multiplier applied to the completed line price.
+    /// </summary>
+    [Range(0, 100)]
+    public decimal ToleranceMultiplier { get; set; } = 1m;
+
+    /// <summary>
+    /// Minimum order floor in THB applied before currency conversion.
+    /// </summary>
+    [Range(0, 1000000000)]
+    public decimal MinimumOrderPriceFloorThb { get; set; }
 
     /// <summary>
     /// Exchange rate used to convert from THB to the customer's currency (1.0 for THB orders).
