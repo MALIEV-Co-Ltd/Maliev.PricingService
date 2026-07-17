@@ -49,6 +49,37 @@ public sealed class ContainerWorkflowContractTests
     }
 
     /// <summary>
+    /// Pull-request validation must execute the production image and prove its live process is non-root.
+    /// </summary>
+    [Fact]
+    public void PullRequestWorkflow_RunsBoundedNonRootLivenessSmoke()
+    {
+        var workflow = ReadRepositoryFile(".github", "workflows", "pr-validation.yml");
+
+        Assert.Contains("timeout 90", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker run --detach", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker top \"$CONTAINER_NAME\" -eo uid", workflow, StringComparison.Ordinal);
+        Assert.Contains("test \"$runtime_uid\" != \"0\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("http://127.0.0.1:8080/pricing/liveness", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker inspect --format '{{.State.Running}}'", workflow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Runtime-smoke resources must be cleaned up even when startup or liveness validation fails.
+    /// </summary>
+    [Fact]
+    public void PullRequestWorkflow_AlwaysCleansUpRuntimeSmokeResources()
+    {
+        var workflow = ReadRepositoryFile(".github", "workflows", "pr-validation.yml");
+
+        Assert.Contains("trap cleanup EXIT", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker logs \"$CONTAINER_NAME\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker rm --force \"$CONTAINER_NAME\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker rm --force \"$POSTGRES_CONTAINER_NAME\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker network rm \"$SMOKE_NETWORK\"", workflow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The reusable build gate must not introduce a deprecated Node 20 cache runtime.
     /// </summary>
     [Fact]
