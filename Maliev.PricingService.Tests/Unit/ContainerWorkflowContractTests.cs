@@ -49,6 +49,24 @@ public sealed class ContainerWorkflowContractTests
     }
 
     /// <summary>
+    /// The reusable build gate must not introduce a deprecated Node 20 cache runtime.
+    /// </summary>
+    [Fact]
+    public void BuildWorkflow_UsesPinnedNode24CacheAction()
+    {
+        var workflow = ReadRepositoryFile(".github", "workflows", "_build-and-test.yml");
+
+        Assert.Contains(
+            "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Development publication must use short-lived GCP credentials and immutable image evidence.
     /// </summary>
     [Fact]
