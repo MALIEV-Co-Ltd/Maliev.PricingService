@@ -5,6 +5,7 @@ WORKDIR /src
 
 # Copy nuget.config and project files
 COPY nuget.config ./
+COPY ["Directory.Build.props", "."]
 COPY ["Maliev.PricingService.Api/Maliev.PricingService.Api.csproj", "Maliev.PricingService.Api/"]
 COPY ["Maliev.PricingService.Application/Maliev.PricingService.Application.csproj", "Maliev.PricingService.Application/"]
 COPY ["Maliev.PricingService.Domain/Maliev.PricingService.Domain.csproj", "Maliev.PricingService.Domain/"]
@@ -13,6 +14,7 @@ COPY ["Maliev.PricingService.Infrastructure/Maliev.PricingService.Infrastructure
 # Restore dependencies with private NuGet feed credentials
 RUN --mount=type=secret,id=nuget_username \
     --mount=type=secret,id=nuget_password \
+    GITHUB_ACTIONS=true \
     NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
     NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
     dotnet restore "Maliev.PricingService.Api/Maliev.PricingService.Api.csproj"
@@ -20,11 +22,11 @@ RUN --mount=type=secret,id=nuget_username \
 # Copy everything and build
 COPY . .
 WORKDIR "/src/Maliev.PricingService.Api"
-RUN dotnet build "Maliev.PricingService.Api.csproj" -c Release -o /app/build
+RUN GITHUB_ACTIONS=true dotnet build "Maliev.PricingService.Api.csproj" -c Release -o /app/build
 
 # Publish stage
 FROM build AS publish
-RUN dotnet publish "Maliev.PricingService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN GITHUB_ACTIONS=true dotnet publish "Maliev.PricingService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Final stage/image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

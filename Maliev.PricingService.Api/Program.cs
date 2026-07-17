@@ -58,15 +58,18 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
-    // External Client Registrations
-    builder.AddAuthenticatedServiceClient<IMaterialServiceClient, MaterialServiceClient>(
-        "MaterialService",
-        sourceServiceName: "pricing");
-
-    builder.Services.AddHttpClient<ICurrencyServiceClient, CurrencyServiceClient>(client =>
-    {
-        client.BaseAddress = new Uri(builder.Configuration["ExternalServices:CurrencyService"] ?? "http://currency-service");
-    }).AddStandardResilienceHandler();
+    // Centrally issued workload identity and protected downstream clients
+    builder.AddAuthServiceTokenExchange("PricingService");
+    builder.AddAuthServiceIAMClient();
+    builder.AddServiceClient<IMaterialServiceClient, MaterialServiceClient>("MaterialService")
+        .AddAuthServiceAuthentication()
+        .AddStandardResilienceHandler();
+    builder.AddServiceClient<IJobServiceClient, JobServiceClient>("JobService")
+        .AddAuthServiceAuthentication()
+        .AddStandardResilienceHandler();
+    builder.AddServiceClient<ICurrencyServiceClient, CurrencyServiceClient>("CurrencyService")
+        .AddAuthServiceAuthentication()
+        .AddStandardResilienceHandler();
 
     // Add OpenAPI
     if (!builder.Environment.IsProduction())
@@ -77,11 +80,7 @@ try
     }
 
     // IAM Registration
-    builder.AddIAMServiceClient("pricing");
     builder.Services.AddIAMRegistration<PricingIAMRegistrationService>("pricing");
-
-    // Service-to-service client — uses ServiceAccountAuthenticationHandler for JWT
-    builder.AddAuthenticatedServiceClient<IJobServiceClient, JobServiceClient>("JobService");
 
     // Background workers
     builder.Services.AddHostedService<MaterialDensitySyncWorker>();
