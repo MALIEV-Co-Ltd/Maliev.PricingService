@@ -2,107 +2,207 @@ name: CI - Develop
 
 on:
   push:
-    branches:
-      - develop
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build-and-test:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_build-and-test.yml
+    with:
+      solution_file: Maliev.PricingService.slnx
+    secrets:
+      gitops_pat: ${{ secrets.GITOPS_PAT }}
+
+  publish-image:
+    name: Publish immutable development image
+    needs: build-and-test
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
+    environment: development
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      IMAGE_NAME: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-pricing-service
+      BASE_IMAGE: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-pricing-service
+      GITOPS_OVERLAY: 3-apps/maliev-pricing-service/overlays/development
+      KUSTOMIZE_VERSION: v5.8.1
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Switch to PackageReference for Docker build
+      - name: Require WIF publication configuration
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
-          # Use develop version format for shared libraries
-          VERSION_FORMAT="1.0.*-alpha*"
-          find . -name "*.csproj" -type f -exec sed -i             's|<ProjectReference Include=".*Maliev.Aspire.ServiceDefaults.*.csproj" />|<PackageReference Include="Maliev.Aspire.ServiceDefaults" Version="'$VERSION_FORMAT'" />|g'             {} +
-          find . -name "*.csproj" -type f -exec sed -i             's|<ProjectReference Include=".*Maliev.MessagingContracts.*.csproj" />|<PackageReference Include="Maliev.MessagingContracts" Version="'$VERSION_FORMAT'" />|g'             {} +
-          echo "Switched to PackageReference for ServiceDefaults and MessagingContracts"
+          set -euo pipefail
+          test -n "$WIF_PROVIDER"
+          test -n "$WIF_SERVICE_ACCOUNT"
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          persist-credentials: false
+
+      - name: Derive immutable version
+        id: version
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud with WIF
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: maliev-website
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: maliev-website
 
-      - name: Build and push Docker image
-        run: |
-          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-          NUGET_USERNAME=${{ github.actor }} \
-          NUGET_PASSWORD=${{ secrets.GITOPS_PAT }} \
-            docker build \
-            --secret id=nuget_username,env=NUGET_USERNAME \
-            --secret id=nuget_password,env=NUGET_PASSWORD \
-            -t asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-pricing-service:${{ github.sha }} \
-            -f Maliev.PricingService.Api/Dockerfile .
-          docker push asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-pricing-service:${{ github.sha }}
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
 
-      - name: Checkout maliev-gitops repository
-        uses: actions/checkout@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build and push immutable image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Maliev.PricingService.Api/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:dev-${{ steps.version.outputs.short_sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          secrets: |
+            nuget_username=${{ github.actor }}
+            nuget_password=${{ secrets.GITOPS_PAT }}
+          cache-from: type=gha,scope=pricing-develop-container
+          cache-to: type=gha,mode=max,scope=pricing-develop-container
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify published digest
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_TAG: dev-${{ steps.version.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          registry_digest="$(gcloud artifacts docker images describe "$IMAGE_NAME:$IMAGE_TAG" --format='value(image_summary.digest)')"
+          test "$registry_digest" = "$IMAGE_DIGEST"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate image SBOM evidence
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx
+          output: trivy-sbom.cdx.json
+          scanners: vuln
+          exit-code: "0"
+
+      - name: Upload image SBOM evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: pricing-develop-sbom-${{ steps.version.outputs.short_sha }}
+          path: trivy-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Scan published digest for high-severity vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Checkout GitOps evidence repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: MALIEV-Co-Ltd/maliev-gitops
           token: ${{ secrets.GITOPS_PAT }}
           path: maliev-gitops
 
       - name: Install Kustomize
-        uses: imranismail/setup-kustomize@v2
-
-
-      - name: Update image tag in maliev-gitops using Kustomize
+        shell: bash
         run: |
-          cd maliev-gitops/3-apps/maliev-pricing-service/overlays/development
-          kustomize edit set image \
-            asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-pricing-service=\
-          asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-pricing-service:${{ github.sha }}
+          set -euo pipefail
+          archive="kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}"
+          curl --fail --location --silent --show-error "$release_url/$archive" --output "$RUNNER_TEMP/$archive"
+          curl --fail --location --silent --show-error "$release_url/checksums.txt" --output "$RUNNER_TEMP/kustomize-checksums.txt"
+          grep "  $archive$" "$RUNNER_TEMP/kustomize-checksums.txt" > "$RUNNER_TEMP/kustomize.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum --check kustomize.sha256)
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP" kustomize
+          sudo install --mode 0755 "$RUNNER_TEMP/kustomize" /usr/local/bin/kustomize
+          kustomize version
 
-      - name: Create Pull Request
+      - name: Pin disabled development overlay to digest
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
-          PR_BODY: |
-            Automated GitOps Update
-
-            - **Service**: PricingService
-            - **Environment**: Development
-            - **Image Tag**: ${{ github.sha }}
-            - **Source Branch**: ${{ github.ref_name }}
-            - **Commit**: ${{ github.sha }}
-
-            Updates maliev-pricing-service image in development overlay.
-            This PR was automatically created by GitHub Actions.
-            Once merged, ArgoCD will automatically sync the changes to the maliev-dev namespace.
-
-            Triggered by: ${{ github.actor }}
-            Workflow: ${{ github.workflow }}
-            Run: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          cd maliev-gitops
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-          # Create a new branch for this update
-          BRANCH_NAME="pricing-service/dev-${{ github.sha }}"
-          git checkout -b $BRANCH_NAME
-
-          # Commit and push changes to the new branch
-          git add .
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
+          set -euo pipefail
+          cd "maliev-gitops/$GITOPS_OVERLAY"
+          kustomize edit set image "$BASE_IMAGE=$IMAGE_NAME@$IMAGE_DIGEST"
+          kustomize build . >/dev/null
+          cd ../../../..
+          if grep -RIl "$GITOPS_OVERLAY" argocd/environments | grep -v '/_disabled_apps/'; then
+            echo "Refusing evidence update because an active ArgoCD Application references PricingService."
+            exit 1
+          fi
+          changed="$(git diff --name-only)"
+          expected="$GITOPS_OVERLAY/kustomization.yaml"
+          if [[ -n "$changed" ]]; then
+            test "$changed" = "$expected"
           fi
 
-          git commit -m "chore(dev): Update PricingService image to ${{ github.sha }}"
-          git push origin $BRANCH_NAME
-
-          # Create pull request using GitHub CLI
+      - name: Create draft GitOps evidence PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          cd maliev-gitops
+          branch_name="pricing-service/dev-$SHORT_SHA-${GITHUB_RUN_ATTEMPT}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch_name"
+          git add "$GITOPS_OVERLAY/kustomization.yaml"
+          if git diff --staged --quiet; then
+            echo "No GitOps evidence change required"
+            exit 0
+          fi
+          git commit -m "chore(dev): record PricingService digest $IMAGE_DIGEST"
+          git push origin "$branch_name"
           gh pr create \
-            --title "chore(dev): Update pricing-service" \
-            --body "$PR_BODY" \
+            --draft \
+            --title "[DO NOT MERGE] chore(dev): update pricing-service evidence" \
+            --body "Evidence only: pins the disabled PricingService development overlay to $IMAGE_NAME@$IMAGE_DIGEST from source $GITHUB_SHA. Do not merge or register an application outside _disabled_apps until deployment readiness is explicitly approved." \
             --base main \
-            --head $BRANCH_NAME \
+            --head "$branch_name" \
             --repo MALIEV-Co-Ltd/maliev-gitops

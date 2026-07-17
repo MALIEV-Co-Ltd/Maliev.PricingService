@@ -48,8 +48,4 @@ EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/pricing/liveness || exit 1
-
 ENTRYPOINT ["dotnet", "Maliev.PricingService.Api.dll"]
