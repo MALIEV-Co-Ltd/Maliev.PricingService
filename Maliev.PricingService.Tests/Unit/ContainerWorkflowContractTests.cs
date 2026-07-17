@@ -143,6 +143,23 @@ public sealed class ContainerWorkflowContractTests
     }
 
     /// <summary>
+    /// WIF and local credential files must never enter the Docker build context or exported BuildKit cache.
+    /// </summary>
+    [Fact]
+    public void DockerContext_ExcludesGeneratedAndLocalCredentialFiles()
+    {
+        var dockerIgnore = ReadRepositoryFile(".dockerignore");
+
+        Assert.Contains("gha-creds-*.json", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains(".env\n", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains(".env.*", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains("*.pem", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains("*.key", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains("*.pfx", dockerIgnore, StringComparison.Ordinal);
+        Assert.Contains("*.p12", dockerIgnore, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// GitOps output is evidence only while every PricingService application remains disabled.
     /// </summary>
     [Fact]
