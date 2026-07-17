@@ -206,6 +206,17 @@ public sealed class PricingOrchestratorQuantityTests
         Assert.Equal(expectedFive, quantityFive.TotalAmount);
         Assert.Equal(quantityFive.TotalAmount / fiveRequest.Quantity, quantityFive.UnitPrice);
         Assert.True(quantityFive.UnitPrice <= quantityOne.UnitPrice);
+
+        var quantityFiveAudit = await db.AuditRecords
+            .SingleAsync(candidate => candidate.Id == quantityFive.AuditId);
+        Assert.Equal(breakdown.SetupCost, quantityFiveAudit.SetupCost);
+        Assert.Equal(breakdown.FixedDfmSurcharge, quantityFiveAudit.FixedDfmSurcharge);
+        var reconstructedTotal = Math.Max(
+            (quantityFiveAudit.SubtotalBeforeMargin - quantityFiveAudit.SetupCost - quantityFiveAudit.FixedDfmSurcharge) *
+            configuration.MarginMultiplier * 0.95m * fiveRequest.Quantity +
+            (quantityFiveAudit.SetupCost + quantityFiveAudit.FixedDfmSurcharge) * configuration.MarginMultiplier,
+            breakdown.MinimumOrderPriceFloor);
+        Assert.Equal(quantityFiveAudit.TotalPrice, reconstructedTotal);
     }
 
     [Fact]

@@ -148,18 +148,18 @@ public class PricingOrchestrator : IPricingOrchestrator
         // ── Canonical Composition Order ──────────────────────────────────────────
         // Step 1: split the engine breakdown into variable per-unit cost and the
         // fixed setup/tooling cost for the job. Calculators deliberately include
-        // SetupCost in SubtotalBeforeMargin so the breakdown remains additive,
-        // but setup must never be multiplied by quantity.
-        decimal fixedSetupCost = Math.Max(0m, breakdown.SetupCost);
-        decimal variableUnitCost = Math.Max(0m, breakdown.SubtotalBeforeMargin - fixedSetupCost);
+        // SetupCost and its setup-derived DFM surcharge in SubtotalBeforeMargin
+        // so the breakdown remains additive, but neither may be multiplied by quantity.
+        decimal fixedLineCost = Math.Max(0m, breakdown.SetupCost + breakdown.FixedDfmSurcharge);
+        decimal variableUnitCost = Math.Max(0m, breakdown.SubtotalBeforeMargin - fixedLineCost);
 
         // Step 2: apply margin to both cost classes. Fixed setup receives margin
         // once for the completed line, while variable cost receives margin per unit.
         decimal marginedVariableUnitPrice = variableUnitCost * config.MarginMultiplier;
-        decimal marginedFixedSetup = fixedSetupCost * config.MarginMultiplier;
+        decimal marginedFixedSetup = fixedLineCost * config.MarginMultiplier;
         decimal marginAmount =
             (marginedVariableUnitPrice - variableUnitCost) +
-            ((marginedFixedSetup - fixedSetupCost) / request.Quantity);
+            ((marginedFixedSetup - fixedLineCost) / request.Quantity);
 
         // Step 3: volume discount applies only to variable production cost. Setup
         // and tooling are one-time job costs and are not diluted by a volume tier.
@@ -204,7 +204,8 @@ public class PricingOrchestrator : IPricingOrchestrator
         decimal flooredTotalThb = Math.Max(rawTotalThb, breakdown.MinimumOrderPriceFloor);
         decimal flooredUnitPriceThb = flooredTotalThb / request.Quantity;
 
-        // Step 7: convert to customer currency (snapshot rate on audit; fallback = 1.0 if service unavailable)
+        // Step 6: convert to customer currency. A missing downstream rate fails
+        // the calculation closed rather than substituting commercial parity.
         decimal exchangeRate = 1.0m;
         var currency = request.Currency ?? "THB";
         if (!string.Equals(currency, "THB", StringComparison.OrdinalIgnoreCase))
@@ -304,6 +305,7 @@ public class PricingOrchestrator : IPricingOrchestrator
             SupportMaterialCost = breakdown.SupportMaterialCost,
             MachineTimeCost = breakdown.MachineTimeCost,
             SetupCost = breakdown.SetupCost,
+            FixedDfmSurcharge = breakdown.FixedDfmSurcharge,
             ComplexitySurcharge = breakdown.ComplexitySurcharge,
             SubtotalBeforeMargin = breakdown.SubtotalBeforeMargin,
             MarginAmount = marginAmount,

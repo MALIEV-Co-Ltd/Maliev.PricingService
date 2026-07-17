@@ -193,6 +193,12 @@ public class PricingAuditRecord
     public decimal SetupCost { get; set; }
 
     /// <summary>
+    /// One-time DFM surcharge attributable to setup work.
+    /// </summary>
+    [Range(0, 10000000)]
+    public decimal FixedDfmSurcharge { get; set; }
+
+    /// <summary>
     /// Surcharge for complex geometry.
     /// </summary>
     [Range(0, 10000000)]

@@ -108,7 +108,7 @@ public class FdmPricingCalculatorTests
     }
 
     [Fact]
-    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    public void Calculate_DfmSurcharge_TracksSetupShareAsFixedLineCost()
     {
         var result = _calculator.Calculate(ContextFactory.Make(
             setupFee: 100m,
@@ -186,7 +186,7 @@ public class SlaPricingCalculatorTests
     }
 
     [Fact]
-    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    public void Calculate_DfmSurcharge_TracksSetupShareAsFixedLineCost()
     {
         var result = _calculator.Calculate(ContextFactory.Make(
             setupFee: 100m,
@@ -290,7 +290,7 @@ public class CncPricingCalculatorTests
     }
 
     [Fact]
-    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    public void Calculate_DfmSurcharge_TracksSetupShareAsFixedLineCost()
     {
         var result = _calculator.Calculate(ContextFactory.Make(
             setupFee: 100m,
@@ -323,6 +323,41 @@ public class CncPricingCalculatorTests
     }
 }
 
+public class AdditionalFixedDfmAllocationTests
+{
+    [Fact]
+    public void CncTurn_DfmSurcharge_TracksSetupShareAsFixedLineCost()
+    {
+        var result = new CncTurnPricingCalculator().Calculate(ContextFactory.Make(
+            setupFee: 100m,
+            minimumOrderPrice: 0m,
+            dfm: new DfmMetrics { HasUndercuts = true }));
+        var variableBase = result.MaterialCost + result.MachineTimeCost;
+
+        Assert.Equal(20m, result.FixedDfmSurcharge);
+        Assert.Equal((variableBase + result.SetupCost) * 0.20m, result.DfmSurcharge);
+        Assert.Equal(
+            result.SubtotalBeforeMargin,
+            variableBase + result.SetupCost + result.DfmSurcharge);
+    }
+
+    [Fact]
+    public void Dmls_DfmSurcharge_TracksSetupShareAsFixedLineCost()
+    {
+        var result = new DmlsPricingCalculator().Calculate(ContextFactory.Make(
+            setupFee: 100m,
+            minimumOrderPrice: 0m,
+            dfm: new DfmMetrics { SupportRequired = true }));
+        var variableBase = result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost;
+
+        Assert.Equal(20m, result.FixedDfmSurcharge);
+        Assert.Equal((variableBase + result.SetupCost) * 0.20m, result.DfmSurcharge);
+        Assert.Equal(
+            result.SubtotalBeforeMargin,
+            variableBase + result.SetupCost + result.DfmSurcharge);
+    }
+}
+
 // ── Engine Dispatch ────────────────────────────────────────────────────────────
 
 public class RuleBasedPricingEngineTests
@@ -333,18 +368,18 @@ public class RuleBasedPricingEngineTests
         decimal setupFee = 50m,
         decimal minOrder = 300m,
         decimal margin = 1.5m) => new()
-    {
-        Id = Guid.NewGuid(),
-        MaterialId = Guid.NewGuid(),
-        ManufacturingProcessId = Guid.NewGuid(),
-        MaterialPricePerCm3 = materialCostPerCm3,
-        MachineHourlyRate = machineHourlyRate,
-        SetupCostFlat = setupFee,
-        MinimumOrderPrice = minOrder,
-        MarginMultiplier = margin,
-        IsActive = true,
-        EffectiveFrom = DateTime.UtcNow
-    };
+        {
+            Id = Guid.NewGuid(),
+            MaterialId = Guid.NewGuid(),
+            ManufacturingProcessId = Guid.NewGuid(),
+            MaterialPricePerCm3 = materialCostPerCm3,
+            MachineHourlyRate = machineHourlyRate,
+            SetupCostFlat = setupFee,
+            MinimumOrderPrice = minOrder,
+            MarginMultiplier = margin,
+            IsActive = true,
+            EffectiveFrom = DateTime.UtcNow
+        };
 
     private static PricingRequest MakeRequest(string processName, decimal quantity = 1m) => new()
     {
@@ -357,8 +392,12 @@ public class RuleBasedPricingEngineTests
         Quantity = quantity,
         Geometry = new GeometryMetrics
         {
-            VolumeCm3 = 50m, SupportVolumeCm3 = 10m, SurfaceAreaCm2 = 100m,
-            BoundingBoxX = 40m, BoundingBoxY = 40m, BoundingBoxZ = 40m  // mm
+            VolumeCm3 = 50m,
+            SupportVolumeCm3 = 10m,
+            SurfaceAreaCm2 = 100m,
+            BoundingBoxX = 40m,
+            BoundingBoxY = 40m,
+            BoundingBoxZ = 40m  // mm
         }
     };
 
