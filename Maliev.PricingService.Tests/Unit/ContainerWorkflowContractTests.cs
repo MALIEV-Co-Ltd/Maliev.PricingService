@@ -61,6 +61,19 @@ public sealed class ContainerWorkflowContractTests
         Assert.Contains("docker top \"$CONTAINER_NAME\" -eo uid", workflow, StringComparison.Ordinal);
         Assert.Contains("test \"$runtime_uid\" != \"0\"", workflow, StringComparison.Ordinal);
         Assert.Contains("--env CORS__AllowedOrigins=http://127.0.0.1", workflow, StringComparison.Ordinal);
+        Assert.Contains("openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "openssl pkey -in \"$SMOKE_PRIVATE_KEY_PATH\" -pubout",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains("--env Jwt__PublicKey=\"$SMOKE_JWT_PUBLIC_KEY\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("--env Jwt__Issuer=https://auth.smoke.invalid", workflow, StringComparison.Ordinal);
+        Assert.Contains("--env Jwt__Audience=https://pricing.smoke.invalid", workflow, StringComparison.Ordinal);
+        Assert.Contains("--env ServiceAuthentication__ClientId=pricing-smoke", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "--env ServiceAuthentication__ClientSecret=\"$SMOKE_CLIENT_SECRET\"",
+            workflow,
+            StringComparison.Ordinal);
         Assert.Contains("http://127.0.0.1:8080/pricing/liveness", workflow, StringComparison.Ordinal);
         Assert.Contains("docker inspect --format '{{.State.Running}}'", workflow, StringComparison.Ordinal);
         Assert.Contains(
@@ -86,6 +99,9 @@ public sealed class ContainerWorkflowContractTests
         Assert.Contains("docker rm --force \"$CONTAINER_NAME\"", workflow, StringComparison.Ordinal);
         Assert.Contains("docker rm --force \"$POSTGRES_CONTAINER_NAME\"", workflow, StringComparison.Ordinal);
         Assert.Contains("docker network rm \"$SMOKE_NETWORK\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("rm --force \"$SMOKE_PRIVATE_KEY_PATH\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("rm --force \"$SMOKE_PUBLIC_KEY_PATH\"", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("cat \"$SMOKE_PRIVATE_KEY_PATH\"", workflow, StringComparison.Ordinal);
     }
 
     /// <summary>
