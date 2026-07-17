@@ -34,6 +34,7 @@ jobs:
       BASE_IMAGE: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-pricing-service
       GITOPS_OVERLAY: 3-apps/maliev-pricing-service/overlays/production
       KUSTOMIZE_VERSION: v5.8.1
+      KUSTOMIZE_SHA256: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
     steps:
       - name: Require WIF promotion configuration
         env:
@@ -150,8 +151,7 @@ jobs:
           archive="kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
           release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}"
           curl --fail --location --silent --show-error "$release_url/$archive" --output "$RUNNER_TEMP/$archive"
-          curl --fail --location --silent --show-error "$release_url/checksums.txt" --output "$RUNNER_TEMP/kustomize-checksums.txt"
-          grep "  $archive$" "$RUNNER_TEMP/kustomize-checksums.txt" > "$RUNNER_TEMP/kustomize.sha256"
+          echo "$KUSTOMIZE_SHA256  $archive" > "$RUNNER_TEMP/kustomize.sha256"
           (cd "$RUNNER_TEMP" && sha256sum --check kustomize.sha256)
           tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP" kustomize
           sudo install --mode 0755 "$RUNNER_TEMP/kustomize" /usr/local/bin/kustomize

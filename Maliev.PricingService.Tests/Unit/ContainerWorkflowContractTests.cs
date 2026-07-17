@@ -117,6 +117,10 @@ public sealed class ContainerWorkflowContractTests
 
         Assert.DoesNotContain("imranismail/setup-kustomize", workflow, StringComparison.Ordinal);
         Assert.Contains("KUSTOMIZE_VERSION: v5.8.1", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "KUSTOMIZE_SHA256: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d",
+            workflow,
+            StringComparison.Ordinal);
         Assert.Contains("sha256sum --check", workflow, StringComparison.Ordinal);
     }
 
