@@ -39,6 +39,139 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CalculatePriceAsync_PublishesCompatibleV1AndReconstructableV2Events()
+    {
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        SeedPricingConfiguration(materialId, processId);
+        var db = _db ?? throw new InvalidOperationException("Test database was not initialized.");
+
+        PriceCalculatedEvent? publishedV1 = null;
+        PriceCalculatedEventV2? publishedV2 = null;
+        var publishEndpoint = new Mock<IPublishEndpoint>(MockBehavior.Strict);
+        var publishSequence = new MockSequence();
+        publishEndpoint
+            .InSequence(publishSequence)
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEvent>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEvent, CancellationToken>((message, _) => publishedV1 = message)
+            .Returns(Task.CompletedTask);
+        publishEndpoint
+            .InSequence(publishSequence)
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEventV2>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEventV2, CancellationToken>((message, _) => publishedV2 = message)
+            .Returns(Task.CompletedTask);
+
+        var orchestrator = new PricingOrchestrator(
+            db,
+            CreatePricingEngine(),
+            CreateJobServiceClient(),
+            Mock.Of<ILogger<PricingOrchestrator>>(),
+            publishEndpoint.Object,
+            new VolumeDiscountResolver(db),
+            CreateCurrencyServiceClient());
+
+        var request = CreateRequest(materialId, processId);
+        var result = await orchestrator.CalculatePriceAsync(request);
+        var auditRecord = await db.AuditRecords.SingleAsync(candidate => candidate.Id == result.AuditId);
+
+        Assert.NotNull(publishedV1);
+        Assert.Equal("PriceCalculatedEvent", publishedV1.MessageName);
+        Assert.Equal("1.0.0", publishedV1.MessageVersion);
+        Assert.Equal(["IntranetBff", "QuotationService"], publishedV1.ConsumedBy);
+        Assert.Equal(25d, publishedV1.Payload.Breakdown.SetupCost);
+        Assert.Equal((double)auditRecord.ComplexitySurcharge, publishedV1.Payload.Breakdown.ComplexitySurcharge);
+
+        Assert.NotNull(publishedV2);
+        Assert.Equal("PriceCalculatedEventV2", publishedV2.MessageName);
+        Assert.Equal("2.0.0", publishedV2.MessageVersion);
+        Assert.Equal("PricingService", publishedV2.PublishedBy);
+        Assert.Empty(publishedV2.ConsumedBy);
+        Assert.Equal(request.CorrelationId, publishedV2.CorrelationId);
+        Assert.Equal(publishedV1.CorrelationId, publishedV2.CorrelationId);
+        Assert.Equal(publishedV1.OccurredAtUtc, publishedV2.OccurredAtUtc);
+        Assert.Equal(publishedV1.Payload.CalculatedAt, publishedV2.Payload.CalculatedAt);
+        Assert.Equal(25d, publishedV2.Payload.Breakdown.SetupCost);
+        Assert.Equal(1.25d, publishedV2.Payload.Breakdown.FixedDfmSurcharge);
+
+        var reconstructedSubtotal =
+            publishedV2.Payload.Breakdown.MaterialCost +
+            publishedV2.Payload.Breakdown.SupportCost +
+            publishedV2.Payload.Breakdown.MachineTimeCost +
+            publishedV2.Payload.Breakdown.SetupCost +
+            publishedV2.Payload.Breakdown.FixedDfmSurcharge +
+            publishedV2.Payload.Breakdown.ComplexitySurcharge;
+        Assert.Equal(publishedV2.Payload.Breakdown.SubtotalBeforeMargin, reconstructedSubtotal, precision: 8);
+        Assert.Equal(
+            publishedV2.Payload.Breakdown.TotalPrice,
+            publishedV2.Payload.Breakdown.SubtotalBeforeMargin + publishedV2.Payload.Breakdown.MarginAmount,
+            precision: 8);
+        Assert.Equal(result.TotalAmount, (decimal)publishedV2.Payload.TotalPrice);
+
+        publishEndpoint.Verify(
+            endpoint => endpoint.Publish(It.IsAny<PriceCalculatedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        publishEndpoint.Verify(
+            endpoint => endpoint.Publish(It.IsAny<PriceCalculatedEventV2>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        publishEndpoint.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_WhenV2PublishFails_PreservesV1DeliveryAndReturnsResult()
+    {
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        SeedPricingConfiguration(materialId, processId);
+        var db = _db ?? throw new InvalidOperationException("Test database was not initialized.");
+
+        PriceCalculatedEvent? publishedV1 = null;
+        var publishEndpoint = new Mock<IPublishEndpoint>(MockBehavior.Strict);
+        var publishSequence = new MockSequence();
+        publishEndpoint
+            .InSequence(publishSequence)
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEvent>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEvent, CancellationToken>((message, _) => publishedV1 = message)
+            .Returns(Task.CompletedTask);
+        publishEndpoint
+            .InSequence(publishSequence)
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEventV2>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("v2 broker route unavailable"));
+
+        var logger = new Mock<ILogger<PricingOrchestrator>>();
+        var orchestrator = new PricingOrchestrator(
+            db,
+            CreatePricingEngine(),
+            CreateJobServiceClient(),
+            logger.Object,
+            publishEndpoint.Object,
+            new VolumeDiscountResolver(db),
+            CreateCurrencyServiceClient());
+
+        var result = await orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId));
+
+        Assert.NotEqual(Guid.Empty, result.AuditId);
+        Assert.NotNull(publishedV1);
+        Assert.Equal("PriceCalculatedEvent", publishedV1.MessageName);
+        Assert.Equal("1.0.0", publishedV1.MessageVersion);
+        VerifyLogLevel(logger, LogLevel.Warning);
+        publishEndpoint.Verify(
+            endpoint => endpoint.Publish(It.IsAny<PriceCalculatedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        publishEndpoint.Verify(
+            endpoint => endpoint.Publish(It.IsAny<PriceCalculatedEventV2>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        publishEndpoint.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task CalculatePriceAsync_WhenPriceCalculatedPublishIsCanceled_ReturnsResultWithoutWarning()
     {
         var materialId = Guid.NewGuid();
@@ -47,6 +180,7 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
         var db = _db ?? throw new InvalidOperationException("Test database was not initialized.");
 
         PriceCalculatedEvent? publishedEvent = null;
+        PriceCalculatedEventV2? publishedV2 = null;
         var publishEndpoint = new Mock<IPublishEndpoint>();
         publishEndpoint
             .Setup(endpoint => endpoint.Publish(
@@ -54,6 +188,12 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
                 It.IsAny<CancellationToken>()))
             .Callback<PriceCalculatedEvent, CancellationToken>((message, _) => publishedEvent = message)
             .ThrowsAsync(new TaskCanceledException("Publisher confirm timed out."));
+        publishEndpoint
+            .Setup(endpoint => endpoint.Publish(
+                It.IsAny<PriceCalculatedEventV2>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<PriceCalculatedEventV2, CancellationToken>((message, _) => publishedV2 = message)
+            .Returns(Task.CompletedTask);
 
         var logger = new Mock<ILogger<PricingOrchestrator>>();
         var orchestrator = new PricingOrchestrator(
@@ -73,6 +213,8 @@ public sealed class PricingOrchestratorPublishTests : IAsyncLifetime
         Assert.Equal(1.25m, auditRecord.FixedDfmSurcharge);
         Assert.NotNull(publishedEvent);
         Assert.Equal(25d, publishedEvent.Payload.Breakdown.SetupCost);
+        Assert.NotNull(publishedV2);
+        Assert.Equal(1.25d, publishedV2.Payload.Breakdown.FixedDfmSurcharge);
         VerifyNoLogLevel(logger, LogLevel.Warning);
         VerifyLogLevel(logger, LogLevel.Debug);
     }
