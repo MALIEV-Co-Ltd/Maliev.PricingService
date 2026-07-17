@@ -14,8 +14,6 @@ namespace Maliev.PricingService.Application.Services;
 
 public class PricingOrchestrator : IPricingOrchestrator
 {
-    private static readonly TimeSpan PriceCalculatedEventPublishTimeout = TimeSpan.FromSeconds(5);
-
     private readonly IPricingDbContext _context;
     private readonly IPricingEngine _ruleEngine;
     private readonly IJobServiceClient _jobServiceClient;
@@ -151,7 +149,9 @@ public class PricingOrchestrator : IPricingOrchestrator
         // SetupCost and its setup-derived DFM surcharge in SubtotalBeforeMargin
         // so the breakdown remains additive, but neither may be multiplied by quantity.
         decimal fixedLineCost = Math.Max(0m, breakdown.SetupCost + breakdown.FixedDfmSurcharge);
+        decimal variableDfmSurcharge = Math.Max(0m, breakdown.DfmSurcharge - breakdown.FixedDfmSurcharge);
         decimal variableUnitCost = Math.Max(0m, breakdown.SubtotalBeforeMargin - fixedLineCost);
+        decimal lineSubtotalBeforeMarginThb = variableUnitCost * request.Quantity + fixedLineCost;
 
         // Step 2: apply margin to both cost classes. Fixed setup receives margin
         // once for the completed line, while variable cost receives margin per unit.
@@ -160,6 +160,7 @@ public class PricingOrchestrator : IPricingOrchestrator
         decimal marginAmount =
             (marginedVariableUnitPrice - variableUnitCost) +
             ((marginedFixedSetup - fixedLineCost) / request.Quantity);
+        decimal lineMarginAmountThb = lineSubtotalBeforeMarginThb * (config.MarginMultiplier - 1m);
 
         // Step 3: volume discount applies only to variable production cost. Setup
         // and tooling are one-time job costs and are not diluted by a volume tier.
@@ -306,12 +307,18 @@ public class PricingOrchestrator : IPricingOrchestrator
             MachineTimeCost = breakdown.MachineTimeCost,
             SetupCost = breakdown.SetupCost,
             FixedDfmSurcharge = breakdown.FixedDfmSurcharge,
+            VariableDfmSurcharge = variableDfmSurcharge,
             ComplexitySurcharge = breakdown.ComplexitySurcharge,
             SubtotalBeforeMargin = breakdown.SubtotalBeforeMargin,
             MarginAmount = marginAmount,
+            LineSubtotalBeforeMarginThb = lineSubtotalBeforeMarginThb,
+            LineMarginAmountThb = lineMarginAmountThb,
             VolumeDiscountTierId = volumeTierId,
             VolumeDiscountPercent = volumeDiscountPct,
             VolumeDiscountAmount = volumeDiscountAmount,
+            LeadTimeMultiplier = leadTimeMultiplier,
+            ToleranceMultiplier = toleranceMultiplier,
+            MinimumOrderPriceFloorThb = breakdown.MinimumOrderPriceFloor,
             ExchangeRate = exchangeRate,
             TotalUnitPrice = flooredUnitPrice,
             TotalPrice = total,
@@ -339,15 +346,10 @@ public class PricingOrchestrator : IPricingOrchestrator
             CreatedAt = now
         });
 
-        await _context.SaveChangesAsync(cancellationToken);
-
-        // ── Publish Event ────────────────────────────────────────────────────────
+        // ── Enqueue Events And Commit Through The EF Bus Outbox ─────────────────
         var eventCorrelationId = request.CorrelationId ?? Guid.NewGuid();
         var eventTimestamp = DateTimeOffset.UtcNow;
-        try
-        {
-            using var publishTimeout = new CancellationTokenSource(PriceCalculatedEventPublishTimeout);
-            await _publishEndpoint.Publish(new PriceCalculatedEvent(
+        await _publishEndpoint.Publish(new PriceCalculatedEvent(
                 MessageId: Guid.NewGuid(),
                 MessageName: "PriceCalculatedEvent",
                 MessageType: MessageType.Event,
@@ -391,27 +393,12 @@ public class PricingOrchestrator : IPricingOrchestrator
                     StoragePath: request.StoragePath,
                     EstimatedLeadTimeDays: estimatedLeadTimeDays
                 )
-            ), publishTimeout.Token);
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogDebug(ex,
-                "PriceCalculatedEvent publish was canceled or timed out for AuditId={AuditId}; result will still be returned",
-                auditRecord.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to publish PriceCalculatedEvent for AuditId={AuditId}; result will still be returned",
-                auditRecord.Id);
-        }
+            ), cancellationToken);
 
-        // Publish v1 first so existing consumers keep receiving the established contract.
-        // The additive v2 confirmation is isolated so either broker publication can fail independently.
-        try
-        {
-            using var publishTimeout = new CancellationTokenSource(PriceCalculatedEventPublishTimeout);
-            await _publishEndpoint.Publish(new PriceCalculatedEventV2(
+        // Publish v1 first so existing consumers retain the established contract.
+        // With UseBusOutbox both envelopes remain local until the single SaveChanges below;
+        // an enqueue or database failure commits neither pricing state nor message.
+        await _publishEndpoint.Publish(new PriceCalculatedEventV2(
                 MessageId: Guid.NewGuid(),
                 MessageName: "PriceCalculatedEventV2",
                 MessageType: MessageType.Event,
@@ -442,10 +429,18 @@ public class PricingOrchestrator : IPricingOrchestrator
                         SupportCost: (double)breakdown.SupportMaterialCost,
                         MachineTimeCost: (double)breakdown.MachineTimeCost,
                         SetupCost: (double)breakdown.SetupCost,
+                        VariableDfmSurcharge: (double)variableDfmSurcharge,
                         FixedDfmSurcharge: (double)breakdown.FixedDfmSurcharge,
                         ComplexitySurcharge: (double)breakdown.ComplexitySurcharge,
-                        SubtotalBeforeMargin: (double)breakdown.SubtotalBeforeMargin,
-                        MarginAmount: (double)marginAmount,
+                        SubtotalBeforeMargin: (double)lineSubtotalBeforeMarginThb,
+                        MarginAmount: (double)lineMarginAmountThb,
+                        MarginMultiplier: (double)config.MarginMultiplier,
+                        VolumeDiscountPercent: (double)volumeDiscountPct,
+                        LeadTimeMultiplier: (double)leadTimeMultiplier,
+                        ToleranceMultiplier: (double)toleranceMultiplier,
+                        MinimumOrderPriceFloorThb: (double)breakdown.MinimumOrderPriceFloor,
+                        ExchangeRate: (double)exchangeRate,
+                        BaseCurrency: "THB",
                         TotalPrice: (double)total
                     ),
                     TotalUnitPrice: (double)flooredUnitPrice,
@@ -456,20 +451,9 @@ public class PricingOrchestrator : IPricingOrchestrator
                     StoragePath: request.StoragePath,
                     EstimatedLeadTimeDays: estimatedLeadTimeDays
                 )
-            ), publishTimeout.Token);
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogDebug(ex,
-                "PriceCalculatedEventV2 publish was canceled or timed out for AuditId={AuditId}; result will still be returned",
-                auditRecord.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to publish PriceCalculatedEventV2 for AuditId={AuditId}; result will still be returned",
-                auditRecord.Id);
-        }
+            ), cancellationToken);
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         return new PricingResult
         {
