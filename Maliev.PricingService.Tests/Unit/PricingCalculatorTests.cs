@@ -107,6 +107,20 @@ public class FdmPricingCalculatorTests
         Assert.True(with.SupportMaterialCost > 0m);
     }
 
+    [Fact]
+    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    {
+        var result = _calculator.Calculate(ContextFactory.Make(
+            setupFee: 100m,
+            minimumOrderPrice: 0m,
+            dfm: new DfmMetrics { ThinWallCount = 1 }));
+        var variableBase = result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost;
+
+        Assert.Equal(100m, result.SetupCost);
+        Assert.Equal(5m, result.FixedDfmSurcharge);
+        Assert.Equal((variableBase + result.SetupCost) * 0.05m, result.DfmSurcharge);
+    }
+
     [Theory]
     [InlineData(100, 50, 10, 5, 0.5, 100, 50, 300)]
     [InlineData(10, 2, 1, 1, 0.5, 100, 50, 300)]
@@ -169,6 +183,20 @@ public class SlaPricingCalculatorTests
             processParameters: new Dictionary<string, string> { ["LayerExposure"] = "5.0" }));
 
         Assert.True(slow.MachineTimeCost > standard.MachineTimeCost);
+    }
+
+    [Fact]
+    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    {
+        var result = _calculator.Calculate(ContextFactory.Make(
+            setupFee: 100m,
+            minimumOrderPrice: 0m,
+            dfm: new DfmMetrics { ResinTrappingRisk = true }));
+        var variableBase = result.MaterialCost + result.SupportMaterialCost + result.MachineTimeCost;
+
+        Assert.Equal(100m, result.SetupCost);
+        Assert.Equal(10m, result.FixedDfmSurcharge);
+        Assert.Equal((variableBase + result.SetupCost) * 0.10m, result.DfmSurcharge);
     }
 
     [Theory]
@@ -259,6 +287,20 @@ public class CncPricingCalculatorTests
             processParameters: new Dictionary<string, string> { ["MachinabilityRating"] = "0.5" }));
 
         Assert.True(hard.MachineTimeCost > standard.MachineTimeCost);
+    }
+
+    [Fact]
+    public void Calculate_DfmSurcharge_AllocatesSetupShareToFixedSetupCost()
+    {
+        var result = _calculator.Calculate(ContextFactory.Make(
+            setupFee: 100m,
+            minimumOrderPrice: 0m,
+            dfm: new DfmMetrics { HasUndercuts = true }));
+        var variableBase = result.MaterialCost + result.MachineTimeCost;
+
+        Assert.Equal(100m, result.SetupCost);
+        Assert.Equal(15m, result.FixedDfmSurcharge);
+        Assert.Equal((variableBase + result.SetupCost) * 0.15m, result.DfmSurcharge);
     }
 
     [Theory]
