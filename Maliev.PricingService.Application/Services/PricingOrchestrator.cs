@@ -342,6 +342,8 @@ public class PricingOrchestrator : IPricingOrchestrator
         await _context.SaveChangesAsync(cancellationToken);
 
         // ── Publish Event ────────────────────────────────────────────────────────
+        var eventCorrelationId = request.CorrelationId ?? Guid.NewGuid();
+        var eventTimestamp = DateTimeOffset.UtcNow;
         try
         {
             using var publishTimeout = new CancellationTokenSource(PriceCalculatedEventPublishTimeout);
@@ -352,9 +354,9 @@ public class PricingOrchestrator : IPricingOrchestrator
                 MessageVersion: "1.0.0",
                 PublishedBy: "PricingService",
                 ConsumedBy: ["IntranetBff", "QuotationService"],
-                CorrelationId: request.CorrelationId ?? Guid.NewGuid(),
+                CorrelationId: eventCorrelationId,
                 CausationId: null,
-                OccurredAtUtc: DateTimeOffset.UtcNow,
+                OccurredAtUtc: eventTimestamp,
                 IsPublic: false,
                 Payload: new PriceCalculatedEventPayload(
                     PricingAuditId: auditRecord.Id,
@@ -385,7 +387,7 @@ public class PricingOrchestrator : IPricingOrchestrator
                     TotalPrice: (double)total,
                     Currency: currency,
                     ValidUntil: new DateTimeOffset(auditRecord.ValidUntil, TimeSpan.Zero),
-                    CalculatedAt: DateTimeOffset.UtcNow,
+                    CalculatedAt: eventTimestamp,
                     StoragePath: request.StoragePath,
                     EstimatedLeadTimeDays: estimatedLeadTimeDays
                 )
@@ -401,6 +403,71 @@ public class PricingOrchestrator : IPricingOrchestrator
         {
             _logger.LogWarning(ex,
                 "Failed to publish PriceCalculatedEvent for AuditId={AuditId}; result will still be returned",
+                auditRecord.Id);
+        }
+
+        // Publish v1 first so existing consumers keep receiving the established contract.
+        // The additive v2 confirmation is isolated so either broker publication can fail independently.
+        try
+        {
+            using var publishTimeout = new CancellationTokenSource(PriceCalculatedEventPublishTimeout);
+            await _publishEndpoint.Publish(new PriceCalculatedEventV2(
+                MessageId: Guid.NewGuid(),
+                MessageName: "PriceCalculatedEventV2",
+                MessageType: MessageType.Event,
+                MessageVersion: "2.0.0",
+                PublishedBy: "PricingService",
+                ConsumedBy: [],
+                CorrelationId: eventCorrelationId,
+                CausationId: null,
+                OccurredAtUtc: eventTimestamp,
+                IsPublic: false,
+                Payload: new PriceCalculatedEventV2Payload(
+                    PricingAuditId: auditRecord.Id,
+                    QuotationId: null,
+                    FileId: request.FileId,
+                    CustomerId: request.CustomerId,
+                    MaterialId: request.MaterialId,
+                    ProcessId: request.ManufacturingProcessId,
+                    Quantity: (int)request.Quantity,
+                    InputVolumeCm3: (double)request.Geometry.VolumeCm3,
+                    InputSupportVolumeCm3: (double)request.Geometry.SupportVolumeCm3,
+                    InputSurfaceAreaCm2: (double)request.Geometry.SurfaceAreaCm2,
+                    Strategy: auditRecord.Strategy.ToString(),
+                    MlModelVersion: auditRecord.MLModelVersion,
+                    ConfidenceLevel: (double)auditRecord.ConfidenceLevel,
+                    PricingConfigurationId: auditRecord.PricingConfigurationId,
+                    Breakdown: new PriceCalculatedEventV2PayloadBreakdown(
+                        MaterialCost: (double)breakdown.MaterialCost,
+                        SupportCost: (double)breakdown.SupportMaterialCost,
+                        MachineTimeCost: (double)breakdown.MachineTimeCost,
+                        SetupCost: (double)breakdown.SetupCost,
+                        FixedDfmSurcharge: (double)breakdown.FixedDfmSurcharge,
+                        ComplexitySurcharge: (double)breakdown.ComplexitySurcharge,
+                        SubtotalBeforeMargin: (double)breakdown.SubtotalBeforeMargin,
+                        MarginAmount: (double)marginAmount,
+                        TotalPrice: (double)total
+                    ),
+                    TotalUnitPrice: (double)flooredUnitPrice,
+                    TotalPrice: (double)total,
+                    Currency: currency,
+                    ValidUntil: new DateTimeOffset(auditRecord.ValidUntil, TimeSpan.Zero),
+                    CalculatedAt: eventTimestamp,
+                    StoragePath: request.StoragePath,
+                    EstimatedLeadTimeDays: estimatedLeadTimeDays
+                )
+            ), publishTimeout.Token);
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex,
+                "PriceCalculatedEventV2 publish was canceled or timed out for AuditId={AuditId}; result will still be returned",
+                auditRecord.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to publish PriceCalculatedEventV2 for AuditId={AuditId}; result will still be returned",
                 auditRecord.Id);
         }
 
