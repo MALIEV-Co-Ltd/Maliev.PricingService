@@ -1,6 +1,8 @@
+using System.Net;
+using System.Net.Http.Json;
+using Maliev.Aspire.ServiceDefaults.IAM;
 using Maliev.PricingService.Application.Interfaces;
 using Microsoft.Extensions.Logging;
-using System.Net.Http.Json;
 
 namespace Maliev.PricingService.Infrastructure.Clients;
 
@@ -28,6 +30,15 @@ public class JobServiceClient : IJobServiceClient
 
             var result = await _httpClient.GetFromJsonAsync<Dictionary<string, int>>(url, cancellationToken);
             return result ?? [];
+        }
+        catch (Exception ex) when (ex is ServiceTokenExchangeException or
+                                   HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden })
+        {
+            _logger.LogWarning(
+                ex,
+                "JobService authorization failed while fetching queue depth for technology {Technology}",
+                technology);
+            throw;
         }
         catch (Exception ex)
         {

@@ -1,3 +1,5 @@
+using System.Net;
+using Maliev.Aspire.ServiceDefaults.IAM;
 using Maliev.PricingService.Application.DTOs;
 using Maliev.PricingService.Application.Interfaces;
 using Maliev.PricingService.Application.Services;
@@ -235,6 +237,87 @@ public sealed class PricingOrchestratorQuantityTests
     }
 
     [Fact]
+    public async Task CalculatePriceAsync_JobTokenExchangeFailure_StopsPricingWorkflow()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var jobServiceClient = new Mock<IJobServiceClient>();
+        jobServiceClient
+            .Setup(client => client.GetQueueDepthByTechnologyAsync(
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ServiceTokenExchangeException("AuthService unavailable."));
+        var orchestrator = CreateOrchestrator(
+            db,
+            CreatePricingEngine(subtotalBeforeMargin: 100m, minimumOrderPriceFloor: 0m).Object,
+            jobServiceClient: jobServiceClient.Object);
+
+        await Assert.ThrowsAsync<ServiceTokenExchangeException>(
+            () => orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity: 1)));
+
+        Assert.Empty(db.AuditRecords);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task CalculatePriceAsync_JobAuthorizationFailure_StopsPricingWorkflow(HttpStatusCode statusCode)
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var jobServiceClient = new Mock<IJobServiceClient>();
+        jobServiceClient
+            .Setup(client => client.GetQueueDepthByTechnologyAsync(
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("JobService denied the workload.", null, statusCode));
+        var orchestrator = CreateOrchestrator(
+            db,
+            CreatePricingEngine(subtotalBeforeMargin: 100m, minimumOrderPriceFloor: 0m).Object,
+            jobServiceClient: jobServiceClient.Object);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(
+            () => orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity: 1)));
+
+        Assert.Equal(statusCode, exception.StatusCode);
+        Assert.Empty(db.AuditRecords);
+    }
+
+    [Fact]
+    public async Task CalculatePriceAsync_JobCancellation_StopsPricingWorkflow()
+    {
+        await using var db = await _fixture.CreateCleanDbContextAsync();
+        var materialId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        db.Configurations.Add(CreatePricingConfiguration(materialId, processId));
+        SeedMachineCapacity(db);
+        await db.SaveChangesAsync();
+        var jobServiceClient = new Mock<IJobServiceClient>();
+        jobServiceClient
+            .Setup(client => client.GetQueueDepthByTechnologyAsync(
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException("JobService request was canceled."));
+        var orchestrator = CreateOrchestrator(
+            db,
+            CreatePricingEngine(subtotalBeforeMargin: 100m, minimumOrderPriceFloor: 0m).Object,
+            jobServiceClient: jobServiceClient.Object);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => orchestrator.CalculatePriceAsync(CreateRequest(materialId, processId, quantity: 1)));
+
+        Assert.Empty(db.AuditRecords);
+    }
+
+    [Fact]
     public async Task CalculatePriceAsync_ExactActiveIdMatch_UsesExactConfigurationBeforeCodeFallback()
     {
         await using var db = await _fixture.CreateCleanDbContextAsync();
@@ -342,14 +425,19 @@ public sealed class PricingOrchestratorQuantityTests
         PricingDbContext db,
         IPricingEngine engine,
         ILogger<PricingOrchestrator>? logger = null,
-        decimal exchangeRate = 1m)
+        decimal exchangeRate = 1m,
+        IJobServiceClient? jobServiceClient = null)
     {
-        var jobServiceClient = new Mock<IJobServiceClient>();
-        jobServiceClient
-            .Setup(client => client.GetQueueDepthByTechnologyAsync(
-                It.IsAny<string?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        if (jobServiceClient is null)
+        {
+            var defaultJobServiceClient = new Mock<IJobServiceClient>();
+            defaultJobServiceClient
+                .Setup(client => client.GetQueueDepthByTechnologyAsync(
+                    It.IsAny<string?>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([]);
+            jobServiceClient = defaultJobServiceClient.Object;
+        }
 
         var publishEndpoint = new Mock<IPublishEndpoint>();
         var currencyClient = new Mock<ICurrencyServiceClient>();
@@ -363,7 +451,7 @@ public sealed class PricingOrchestratorQuantityTests
         return new PricingOrchestrator(
             db,
             engine,
-            jobServiceClient.Object,
+            jobServiceClient,
             logger ?? NullLogger<PricingOrchestrator>.Instance,
             publishEndpoint.Object,
             new VolumeDiscountResolver(db),

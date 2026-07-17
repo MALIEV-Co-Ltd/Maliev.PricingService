@@ -1,7 +1,9 @@
+using System.Net;
+using System.Net.Http.Json;
+using Maliev.Aspire.ServiceDefaults.IAM;
 using Maliev.PricingService.Application.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using System.Net.Http.Json;
 
 namespace Maliev.PricingService.Infrastructure.Clients;
 
@@ -46,6 +48,11 @@ public class MaterialServiceClient : IMaterialServiceClient
 
             return materials;
         }
+        catch (Exception ex) when (IsAuthorizationFailure(ex))
+        {
+            _logger.LogWarning(ex, "MaterialService authorization failed while fetching the material catalog");
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching material catalog");
@@ -58,6 +65,11 @@ public class MaterialServiceClient : IMaterialServiceClient
         try
         {
             return await _httpClient.GetFromJsonAsync<MaterialDto>($"/material/v1/materials/{materialId}", cancellationToken);
+        }
+        catch (Exception ex) when (IsAuthorizationFailure(ex))
+        {
+            _logger.LogWarning(ex, "MaterialService authorization failed while fetching material {MaterialId}", materialId);
+            throw;
         }
         catch (Exception ex)
         {
@@ -72,6 +84,11 @@ public class MaterialServiceClient : IMaterialServiceClient
         {
             return await _httpClient.GetFromJsonAsync<ManufacturingProcessDto>($"/material/v1/reference/processes/{processId}", cancellationToken);
         }
+        catch (Exception ex) when (IsAuthorizationFailure(ex))
+        {
+            _logger.LogWarning(ex, "MaterialService authorization failed while fetching process {ProcessId}", processId);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching process {ProcessId}", processId);
@@ -85,12 +102,21 @@ public class MaterialServiceClient : IMaterialServiceClient
         {
             return await _httpClient.GetFromJsonAsync<MaterialDto>($"/material/v1/materials/default/{processType}", cancellationToken);
         }
+        catch (Exception ex) when (IsAuthorizationFailure(ex))
+        {
+            _logger.LogWarning(ex, "MaterialService authorization failed while fetching the default material for {ProcessType}", processType);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching default material for {ProcessType}", processType);
             return null;
         }
     }
+
+    private static bool IsAuthorizationFailure(Exception exception) =>
+        exception is ServiceTokenExchangeException or
+            HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden };
 
     private sealed record PagedMaterialResponse<T>
     {

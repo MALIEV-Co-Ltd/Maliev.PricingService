@@ -1,3 +1,5 @@
+using System.Net;
+using Maliev.Aspire.ServiceDefaults.IAM;
 using Maliev.MessagingContracts.Contracts.Pricing;
 using Maliev.MessagingContracts.Contracts.Shared;
 using Maliev.PricingService.Application.DTOs;
@@ -236,6 +238,16 @@ public class PricingOrchestrator : IPricingOrchestrator
                     request.ManufacturingProcessName, cancellationToken);
                 if (queueDepths.TryGetValue(request.ManufacturingProcessName, out var depth))
                     queueDepth = depth;
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or
+                                       ServiceTokenExchangeException or
+                                       HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden })
+            {
+                _logger.LogWarning(
+                    ex,
+                    "JobService request could not be trusted or was canceled for technology {Technology}",
+                    request.ManufacturingProcessName);
+                throw;
             }
             catch (Exception ex)
             {
