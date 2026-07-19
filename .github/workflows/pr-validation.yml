@@ -1,0 +1,202 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [develop, staging, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version_format: ${{ steps.set-version.outputs.version_format }}
+    steps:
+      - id: set-version
+        run: |
+          BASE_BRANCH="${{ github.base_ref }}"
+          if [ "$BASE_BRANCH" == "main" ]; then
+            VERSION_FORMAT="1.0.*"
+          elif [ "$BASE_BRANCH" == "staging" ]; then
+            VERSION_FORMAT="1.0.*-beta*"
+          else
+            VERSION_FORMAT="1.0.*-alpha*"
+          fi
+          echo "version_format=$VERSION_FORMAT" >> $GITHUB_OUTPUT
+
+  build-and-test:
+    needs: prep
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/_build-and-test.yml
+    with:
+      solution_file: Maliev.PricingService.slnx
+      extra_args: -p:SharedLibraryVersion=${{ needs.prep.outputs.version_format }}
+    secrets:
+      gitops_pat: ${{ secrets.GITOPS_PAT }}
+
+  container:
+    name: Build and scan production image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: maliev-pricing-service:pr-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_IMAGE: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+      CONTAINER_NAME: pricing-service-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_CONTAINER_NAME: pricing-postgres-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+      SMOKE_NETWORK: pricing-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build local production image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Maliev.PricingService.Api/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_TAG }}
+          secrets: |
+            nuget_username=${{ github.actor }}
+            nuget_password=${{ secrets.GITOPS_PAT }}
+          cache-from: type=gha,scope=pricing-pr-container
+          cache-to: type=gha,mode=max,scope=pricing-pr-container
+
+      - name: Validate runtime image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$(docker image inspect "$IMAGE_TAG")"
+          test "$(jq -r '.[0].Config.User' <<< "$metadata")" = "app"
+          test "$(jq -c '.[0].Config.Entrypoint' <<< "$metadata")" = '["dotnet","Maliev.PricingService.Api.dll"]'
+          test "$(jq -r '.[0].Config.ExposedPorts | has("8080/tcp")' <<< "$metadata")" = "true"
+          test "$(jq -r '.[0].Config.Healthcheck == null' <<< "$metadata")" = "true"
+
+      - name: Smoke test non-root production container
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SMOKE_PRIVATE_KEY_PATH="$RUNNER_TEMP/pricing-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-private.pem"
+          SMOKE_PUBLIC_KEY_PATH="$RUNNER_TEMP/pricing-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-public.pem"
+
+          cleanup() {
+            exit_code=$?
+            trap - EXIT
+            set +e
+            if [ "$exit_code" -ne 0 ]; then
+              echo "PricingService runtime smoke failed; dumping container logs."
+              docker logs "$CONTAINER_NAME"
+              docker logs "$POSTGRES_CONTAINER_NAME"
+            fi
+            docker rm --force "$CONTAINER_NAME" >/dev/null 2>&1
+            docker rm --force "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1
+            docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1
+            rm --force "$SMOKE_PRIVATE_KEY_PATH"
+            rm --force "$SMOKE_PUBLIC_KEY_PATH"
+            exit "$exit_code"
+          }
+          trap cleanup EXIT
+
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+            -out "$SMOKE_PRIVATE_KEY_PATH" 2>/dev/null
+          openssl pkey -in "$SMOKE_PRIVATE_KEY_PATH" -pubout \
+            -out "$SMOKE_PUBLIC_KEY_PATH" 2>/dev/null
+          SMOKE_JWT_PUBLIC_KEY="$(base64 --wrap=0 "$SMOKE_PUBLIC_KEY_PATH")"
+          SMOKE_CLIENT_SECRET="$(openssl rand -hex 32)"
+
+          docker network create "$SMOKE_NETWORK" >/dev/null
+          docker run --detach \
+            --name "$POSTGRES_CONTAINER_NAME" \
+            --network "$SMOKE_NETWORK" \
+            --env POSTGRES_DB=pricing_smoke \
+            --env POSTGRES_USER=pricing_smoke \
+            --env POSTGRES_PASSWORD=pricing_smoke \
+            "$POSTGRES_IMAGE" >/dev/null
+
+          export POSTGRES_CONTAINER_NAME
+          timeout 60 bash -c '
+            until docker exec "$POSTGRES_CONTAINER_NAME" pg_isready --username pricing_smoke --dbname pricing_smoke >/dev/null 2>&1; do
+              if [ "$(docker inspect --format '{{.State.Running}}' "$POSTGRES_CONTAINER_NAME")" != "true" ]; then
+                echo "PostgreSQL smoke dependency exited before becoming ready." >&2
+                exit 1
+              fi
+              sleep 1
+            done
+          '
+
+          docker run --detach \
+            --name "$CONTAINER_NAME" \
+            --network "$SMOKE_NETWORK" \
+            --publish 127.0.0.1:8080:8080 \
+            --env ASPNETCORE_ENVIRONMENT=Testing \
+            --env Cache__RedisEnabled=false \
+            --env CORS__AllowedOrigins=http://127.0.0.1 \
+            --env Jwt__PublicKey="$SMOKE_JWT_PUBLIC_KEY" \
+            --env Jwt__Issuer=https://auth.smoke.invalid \
+            --env Jwt__Audience=https://pricing.smoke.invalid \
+            --env MassTransit__UseInMemory=true \
+            --env ServiceAuthentication__ClientId=pricing-smoke \
+            --env ServiceAuthentication__ClientSecret="$SMOKE_CLIENT_SECRET" \
+            --env Services__AuthService__BaseUrl=http://127.0.0.1:9 \
+            --env Services__IAMService__BaseUrl=http://127.0.0.1:9 \
+            --env "ConnectionStrings__PricingDbContext=Host=$POSTGRES_CONTAINER_NAME;Port=5432;Database=pricing_smoke;Username=pricing_smoke;Password=pricing_smoke" \
+            "$IMAGE_TAG" >/dev/null
+
+          export CONTAINER_NAME
+          timeout 90 bash -c '
+            until curl --fail --silent --show-error http://127.0.0.1:8080/pricing/liveness >/dev/null; do
+              if [ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" != "true" ]; then
+                echo "PricingService container exited before liveness succeeded." >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          '
+
+          test "$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" = "true"
+          runtime_uid="$(docker top "$CONTAINER_NAME" -eo pid,uid | awk 'NR == 2 { print $2 }')"
+          [[ "$runtime_uid" =~ ^[0-9]+$ ]]
+          test "$runtime_uid" != "0"
+
+      - name: Generate image SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_TAG }}
+          format: cyclonedx
+          output: trivy-sbom.cdx.json
+          scanners: vuln
+          exit-code: "0"
+
+      - name: Upload image SBOM evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: pricing-image-sbom-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Scan image for high-severity vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_TAG }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"

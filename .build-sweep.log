@@ -1,0 +1,9 @@
+B:\maliev\Maliev.PricingService\Maliev.PricingService.Tests\Maliev.PricingService.Tests.csproj : error NU1903: Warning As Error: Package 'SQLitePCLRaw.lib.e_sqlite3' 2.1.11 has a known high severity vulnerability, https://github.com/advisories/GHSA-2m69-gcr7-jv3q [B:\maliev\Maliev.PricingService\Maliev.PricingService.slnx]
+
+Build FAILED.
+
+B:\maliev\Maliev.PricingService\Maliev.PricingService.Tests\Maliev.PricingService.Tests.csproj : error NU1903: Warning As Error: Package 'SQLitePCLRaw.lib.e_sqlite3' 2.1.11 has a known high severity vulnerability, https://github.com/advisories/GHSA-2m69-gcr7-jv3q [B:\maliev\Maliev.PricingService\Maliev.PricingService.slnx]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:01.93
