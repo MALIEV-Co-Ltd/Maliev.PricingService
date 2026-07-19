@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1.4
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Copy nuget.config and project files
+COPY nuget.config ./
+COPY ["Directory.Build.props", "."]
+COPY ["Maliev.PricingService.Api/Maliev.PricingService.Api.csproj", "Maliev.PricingService.Api/"]
+COPY ["Maliev.PricingService.Application/Maliev.PricingService.Application.csproj", "Maliev.PricingService.Application/"]
+COPY ["Maliev.PricingService.Domain/Maliev.PricingService.Domain.csproj", "Maliev.PricingService.Domain/"]
+COPY ["Maliev.PricingService.Infrastructure/Maliev.PricingService.Infrastructure.csproj", "Maliev.PricingService.Infrastructure/"]
+
+# Restore dependencies with private NuGet feed credentials
+RUN --mount=type=secret,id=nuget_username \
+    --mount=type=secret,id=nuget_password \
+    GITHUB_ACTIONS=true \
+    NUGET_USERNAME=$(cat /run/secrets/nuget_username) \
+    NUGET_PASSWORD=$(cat /run/secrets/nuget_password) \
+    dotnet restore "Maliev.PricingService.Api/Maliev.PricingService.Api.csproj"
+
+# Copy everything and build
+COPY . .
+WORKDIR "/src/Maliev.PricingService.Api"
+RUN GITHUB_ACTIONS=true dotnet build "Maliev.PricingService.Api.csproj" -c Release -o /app/build
+
+# Publish stage
+FROM build AS publish
+RUN GITHUB_ACTIONS=true dotnet publish "Maliev.PricingService.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+# Final stage/image
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+# Ensure 'app' owns the workdir (app user already exists in ASP.NET runtime image)
+RUN chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
+# Copy published application (now owned by app)
+COPY --chown=app:app --from=publish /app/publish .
+
+# Expose port
+EXPOSE 8080
+
+# Set environment variables
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+ENTRYPOINT ["dotnet", "Maliev.PricingService.Api.dll"]

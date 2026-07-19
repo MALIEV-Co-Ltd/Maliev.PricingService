@@ -1,0 +1,180 @@
+name: CI - Staging
+
+on:
+  push:
+    tags: ["release/v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  promote-image:
+    name: Promote verified digest to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    env:
+      SOURCE_IMAGE: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-dev/maliev-pricing-service
+      TARGET_IMAGE: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact-staging/maliev-pricing-service
+      BASE_IMAGE: asia-southeast1-docker.pkg.dev/maliev-website/maliev-website-artifact/maliev-pricing-service
+      GITOPS_OVERLAY: 3-apps/maliev-pricing-service/overlays/staging
+      KUSTOMIZE_VERSION: v5.8.1
+      KUSTOMIZE_SHA256: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
+    steps:
+      - name: Require WIF promotion configuration
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER"
+          test -n "$WIF_SERVICE_ACCOUNT"
+
+      - name: Checkout release source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Derive release identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME##*/v}"
+          [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud with WIF
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: maliev-website
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          project_id: maliev-website
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Resolve and verify develop digest
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: dev-${{ steps.release.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          source_digest="$(gcloud artifacts docker images describe "$SOURCE_IMAGE:$SOURCE_TAG" --format='value(image_summary.digest)')"
+          [[ "$source_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh attestation verify "oci://$SOURCE_IMAGE@$source_digest" \
+            --repo "$GITHUB_REPOSITORY" \
+            --source-digest "$GITHUB_SHA" \
+            --source-ref refs/heads/develop \
+            --signer-workflow "github.com/MALIEV-Co-Ltd/Maliev.PricingService/.github/workflows/ci-develop.yml"
+          echo "source_digest=$source_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Promote exact digest without rebuilding
+        id: promotion
+        shell: bash
+        env:
+          SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
+          RELEASE_VERSION: ${{ steps.release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$TARGET_IMAGE:$RELEASE_VERSION" \
+            "$SOURCE_IMAGE@$SOURCE_DIGEST"
+          promoted_digest="$(gcloud artifacts docker images describe "$TARGET_IMAGE:$RELEASE_VERSION" --format='value(image_summary.digest)')"
+          test "$promoted_digest" = "$SOURCE_DIGEST"
+          echo "promoted_digest=$promoted_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest approved staging release identity
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-name: ${{ env.TARGET_IMAGE }}
+          subject-digest: ${{ steps.promotion.outputs.promoted_digest }}
+          push-to-registry: true
+
+      - name: Checkout GitOps evidence repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: MALIEV-Co-Ltd/maliev-gitops
+          token: ${{ secrets.GITOPS_PAT }}
+          path: maliev-gitops
+
+      - name: Install Kustomize
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}"
+          curl --fail --location --silent --show-error "$release_url/$archive" --output "$RUNNER_TEMP/$archive"
+          echo "$KUSTOMIZE_SHA256  $archive" > "$RUNNER_TEMP/kustomize.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum --check kustomize.sha256)
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP" kustomize
+          sudo install --mode 0755 "$RUNNER_TEMP/kustomize" /usr/local/bin/kustomize
+          kustomize version
+
+      - name: Pin disabled staging overlay to promoted digest
+        shell: bash
+        env:
+          PROMOTED_DIGEST: ${{ steps.promotion.outputs.promoted_digest }}
+        run: |
+          set -euo pipefail
+          cd "maliev-gitops/$GITOPS_OVERLAY"
+          kustomize edit set image "$BASE_IMAGE=$TARGET_IMAGE@$PROMOTED_DIGEST"
+          kustomize build . >/dev/null
+          cd ../../../..
+          if grep -RIl "$GITOPS_OVERLAY" argocd/environments | grep -v '/_disabled_apps/'; then
+            echo "Refusing evidence update because an active ArgoCD Application references PricingService."
+            exit 1
+          fi
+          changed="$(git diff --name-only)"
+          expected="$GITOPS_OVERLAY/kustomization.yaml"
+          if [[ -n "$changed" ]]; then
+            test "$changed" = "$expected"
+          fi
+
+      - name: Create draft GitOps evidence PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
+          PROMOTED_DIGEST: ${{ steps.promotion.outputs.promoted_digest }}
+          RELEASE_VERSION: ${{ steps.release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          cd maliev-gitops
+          branch_name="pricing-service/staging-$RELEASE_VERSION-${GITHUB_RUN_ATTEMPT}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch_name"
+          git add "$GITOPS_OVERLAY/kustomization.yaml"
+          if git diff --staged --quiet; then
+            echo "No GitOps evidence change required"
+            exit 0
+          fi
+          git commit -m "chore(staging): record PricingService digest $PROMOTED_DIGEST"
+          git push origin "$branch_name"
+          gh pr create \
+            --draft \
+            --title "[DO NOT MERGE] chore(staging): update pricing-service evidence" \
+            --body "Evidence only: pins the disabled PricingService staging overlay to $TARGET_IMAGE@$PROMOTED_DIGEST for release $RELEASE_VERSION. This is the exact attested develop digest; no image was rebuilt. Do not merge or register an application outside _disabled_apps." \
+            --base main \
+            --head "$branch_name" \
+            --repo MALIEV-Co-Ltd/maliev-gitops
