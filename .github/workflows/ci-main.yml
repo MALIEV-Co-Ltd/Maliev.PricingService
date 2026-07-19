@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   promote-image:
+    if: github.event_name == 'workflow_dispatch'
     name: Promote verified digest to production
     runs-on: ubuntu-latest
     timeout-minutes: 20
