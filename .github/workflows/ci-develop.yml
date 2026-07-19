@@ -3,6 +3,7 @@ name: CI - Develop
 on:
   push:
     branches: [develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,6 +24,7 @@ jobs:
       gitops_pat: ${{ secrets.GITOPS_PAT }}
 
   publish-image:
+    if: github.event_name == 'workflow_dispatch'
     name: Publish immutable development image
     needs: build-and-test
     runs-on: ubuntu-latest

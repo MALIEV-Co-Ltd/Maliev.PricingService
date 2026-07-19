@@ -143,6 +143,26 @@ public sealed class ContainerWorkflowContractTests
     }
 
     /// <summary>
+    /// Branch convergence must validate on push without implicitly publishing or promoting images.
+    /// </summary>
+    [Fact]
+    public void ImagePublicationAndPromotion_RequireManualDispatch()
+    {
+        var developWorkflow = ReadRepositoryFile(".github", "workflows", "ci-develop.yml");
+        var mainWorkflow = ReadRepositoryFile(".github", "workflows", "ci-main.yml");
+
+        Assert.Contains("workflow_dispatch:", developWorkflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "publish-image:\n    if: github.event_name == 'workflow_dispatch'",
+            developWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "promote-image:\n    if: github.event_name == 'workflow_dispatch'",
+            mainWorkflow,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// WIF and local credential files must never enter the Docker build context or exported BuildKit cache.
     /// </summary>
     [Fact]
