@@ -245,9 +245,12 @@ public sealed class ServiceAuthenticationWiringTests
             .AddAuthServiceAuthentication();
     }
 
+    private static HostApplicationBuilder CreateConfiguredBuilder() =>
+        CreateConfiguredBuilder("service-pricing-service", new string('x', 32));
+
     private static HostApplicationBuilder CreateConfiguredBuilder(
-        string? clientId = "service-pricing-service",
-        string? clientSecret = "pricing-test-secret-with-at-least-32-bytes")
+        string? clientId,
+        string? clientSecret)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
